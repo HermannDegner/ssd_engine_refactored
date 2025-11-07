@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "D:\GitHub\SSD_Theory\ssd_engine_refactored\examples\apex_survivor_ssd_pure_v3.py", line 733, in <module>
+    main()
+  File "D:\GitHub\SSD_Theory\ssd_engine_refactored\examples\apex_survivor_ssd_pure_v3.py", line 693, in main
+    print("""
+UnicodeEncodeError: 'cp932' codec can't encode character '\U0001f3ae' in position 64: illegal multibyte sequence
