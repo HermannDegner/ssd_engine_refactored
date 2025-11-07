@@ -23,6 +23,12 @@ import sys
 import os
 
 # 理論的コアをインポート
+# 理論的コア (archiveフォルダーから)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+archive_dir = os.path.join(parent_dir, 'archive')
+sys.path.insert(0, archive_dir)
+
 from werewolf_game_v10_2_1_causal import (
     PlayerV10Causal,
     WerewolfGameV10Causal
@@ -31,7 +37,16 @@ from werewolf_game_v10_2_1_causal import (
 # 親ディレクトリをパスに追加
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
+grandparent_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, grandparent_dir)
+
+# coreモジュールのパス追加
+core_path = os.path.join(grandparent_dir, 'core')
+sys.path.insert(0, core_path)
+
+# extensionsモジュールのパス追加
+extensions_path = os.path.join(grandparent_dir, 'extensions')
+sys.path.insert(0, extensions_path)
 
 from ssd_memory_structure import Concept, cosine_similarity
 
@@ -101,7 +116,7 @@ class WerewolfVisualizer:
         # エッジ（類似度が0.6以上の概念ペア）
         for i in range(n):
             for j in range(i+1, n):
-                sim = cosine_similarity(concepts[i].prototype, concepts[j].prototype)
+                sim = cosine_similarity(concepts[i].cluster.prototype_signal, concepts[j].cluster.prototype_signal)
                 if sim > 0.6:
                     x_coords = [positions[i][0], positions[j][0]]
                     y_coords = [positions[i][1], positions[j][1]]

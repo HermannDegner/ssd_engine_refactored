@@ -44,11 +44,25 @@ action = agent.get_action()
 
 ## ⭐ 主要実装
 
+### ゲームAI
 **APEX SURVIVOR v3** - 純粋E/κ創発の完成版
 - 本能的死の恐怖をκ初期値に反映
 - 外部ロジックなしで安全行動が創発
 
 詳細: `examples/apex_survivor_ssd_pure_v3.py`
+
+### 社会分析 🆕
+**社会現象の包括的分析** - 現実社会のダイナミクスをモデル化
+- 意見分極化、リーダーシップの創発、規範形成
+- 集団パニック、規範崩壊、カリスマ的リーダー
+- SNS炎上、パワーハラスメント
+
+**クイックスタート:**
+```bash
+python run_social_analysis.py
+```
+
+詳細: `examples/SOCIAL_ANALYSIS_README.md`
 
 ---
 

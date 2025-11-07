@@ -21,10 +21,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, List, Dict, Tuple
 
-from ssd_core_engine import (
-    SSDCoreEngine, SSDCoreParams, SSDCoreState,
-    LeapType, create_default_state
-)
+try:
+    from .ssd_core_engine import (
+        SSDCoreEngine, SSDCoreParams, SSDCoreState,
+        LeapType, create_default_state
+    )
+except ImportError:
+    from ssd_core_engine import (
+        SSDCoreEngine, SSDCoreParams, SSDCoreState,
+        LeapType, create_default_state
+    )
 
 
 class HumanLayer(Enum):

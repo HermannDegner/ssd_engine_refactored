@@ -22,7 +22,12 @@ import os
 # 親ディレクトリをパスに追加
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
+grandparent_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, grandparent_dir)
+
+# coreモジュールのパス追加
+core_path = os.path.join(grandparent_dir, 'core')
+sys.path.insert(0, core_path)
 
 from ssd_human_module import HumanAgent, HumanPressure
 

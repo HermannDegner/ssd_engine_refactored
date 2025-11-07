@@ -21,6 +21,10 @@ from pathlib import Path
 parent_path = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_path))
 
+# coreモジュールのパス追加
+core_path = parent_path / 'core'
+sys.path.insert(0, str(core_path))
+
 import random
 import numpy as np
 from ssd_human_module import HumanAgent, HumanPressure, HumanLayer

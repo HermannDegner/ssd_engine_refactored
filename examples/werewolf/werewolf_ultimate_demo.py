@@ -18,7 +18,12 @@ import sys
 import os
 from typing import List, Dict, Tuple, Optional
 
-# 理論的コア
+# 理論的コア (archiveフォルダーから)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+archive_dir = os.path.join(parent_dir, 'archive')
+sys.path.insert(0, archive_dir)
+
 from werewolf_game_v10_2_1_causal import (
     PlayerV10Causal,
     WerewolfGameV10Causal
@@ -43,7 +48,12 @@ from werewolf_visualizer import WerewolfVisualizer
 # 親ディレクトリをパスに追加
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
+grandparent_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, grandparent_dir)
+
+# coreモジュールのパス追加
+core_path = os.path.join(grandparent_dir, 'core')
+sys.path.insert(0, core_path)
 
 from ssd_human_module import HumanPressure
 

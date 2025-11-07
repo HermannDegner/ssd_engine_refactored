@@ -7,25 +7,18 @@ SSD Theory Extensions
 拡張するためのモジュールが含まれています。
 """
 
-from .ssd_social_dynamics import SocialAgent, SocialNetwork
-from .ssd_subjective_social_pressure import SubjectiveSocialPressure
-from .ssd_subjective_society import SubjectiveSociety
-from .ssd_dynamic_interpretation import DynamicInterpreter
-from .ssd_memory_structure import MemoryStructure, MemoryLayer
+from .ssd_social_dynamics import (
+    Society, SocialDynamicsEngine, SocialCouplingParams, 
+    RelationshipMatrix, RelationType
+)
 
 __all__ = [
     # Social Dynamics
-    'SocialAgent',
-    'SocialNetwork',
-    
-    # Subjective Social
-    'SubjectiveSocialPressure',
-    'SubjectiveSociety',
-    
-    # Advanced Features
-    'DynamicInterpreter',
-    'MemoryStructure',
-    'MemoryLayer',
+    'Society',
+    'SocialDynamicsEngine',
+    'SocialCouplingParams',
+    'RelationshipMatrix',
+    'RelationType',
 ]
 
 __version__ = '1.0.0'

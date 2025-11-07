@@ -11,7 +11,17 @@ Phase 3の理論的整合を高めた、非線形層間転送のデモンスト�
 """
 
 import sys
-sys.path.append('..')
+import os
+
+# パス設定
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+grandparent_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, grandparent_dir)
+
+# coreモジュールのパス追加
+core_path = os.path.join(grandparent_dir, 'core')
+sys.path.insert(0, core_path)
 
 import numpy as np
 from ssd_human_module import HumanAgent, HumanPressure, HumanLayer

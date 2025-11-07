@@ -11,7 +11,21 @@ Phase 4の理論的整合を達成した、主観的な社会的意味圧のデ�
 """
 
 import sys
-sys.path.append('..')
+import os
+
+# パス設定
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+grandparent_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, grandparent_dir)
+
+# coreモジュールのパス追加
+core_path = os.path.join(grandparent_dir, 'core')
+sys.path.insert(0, core_path)
+
+# extensionsモジュールのパス追加
+extensions_path = os.path.join(grandparent_dir, 'extensions')
+sys.path.insert(0, extensions_path)
 
 from ssd_human_module import HumanAgent, HumanPressure, HumanLayer
 from ssd_subjective_social_pressure import (

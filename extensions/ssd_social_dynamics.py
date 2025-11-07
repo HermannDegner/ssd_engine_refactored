@@ -21,6 +21,18 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
 from enum import Enum
 
+import sys
+import os
+# プロジェクトルートをパスに追加
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# coreモジュールのパスを追加
+core_path = os.path.join(project_root, 'core')
+if core_path not in sys.path:
+    sys.path.insert(0, core_path)
+
 from ssd_human_module import HumanAgent, HumanParams, HumanPressure, HumanLayer
 
 
@@ -404,3 +416,89 @@ def create_norm_propagation_scenario(num_agents: int = 7) -> Society:
     society.agents[0].state.kappa[HumanLayer.CORE.value] = 1.8
     
     return society
+
+
+# 簡易ラッパークラス（フランス革命シミュレーター用）
+class SocialDynamicsEngine:
+    """Societyクラスのラッパー（カスタムエージェントリスト対応）"""
+    
+    def __init__(self, agents: List[HumanAgent], relationships: 'RelationshipMatrix', 
+                 params: Optional[SocialCouplingParams] = None):
+        self.agents = agents
+        self.relationships = relationships
+        self.social_params = params or SocialCouplingParams()
+        self.num_agents = len(agents)
+        self.t = 0.0
+        
+        # Societyの内部メソッドを使用するため、一時的なSocietyインスタンスを作成
+        self._society_template = Society(num_agents=self.num_agents, social_params=self.social_params)
+    
+    def step(self):
+        """1ステップの社会的相互作用"""
+        # 各エージェントへの社会的カップリングを計算
+        for agent_idx in range(self.num_agents):
+            coupling = self._compute_social_coupling_for_agent(agent_idx)
+            
+            # エネルギーカップリングを適用
+            for layer in range(4):
+                self.agents[agent_idx].state.E[layer] += coupling['energy_coupling'][layer]
+            
+            # κカップリングを適用
+            for layer in range(4):
+                self.agents[agent_idx].state.kappa[layer] += coupling['kappa_coupling'][layer]
+                # κは最小値を下回らない
+                self.agents[agent_idx].state.kappa[layer] = max(
+                    self.agents[agent_idx].state.kappa[layer],
+                    self.agents[agent_idx].params.to_core_params().kappa_min_values[layer]
+                )
+        
+        self.t += 1.0
+    
+    def _compute_social_coupling_for_agent(self, agent_idx: int) -> Dict[str, np.ndarray]:
+        """特定エージェントへの社会的カップリングを計算"""
+        agent = self.agents[agent_idx]
+        
+        energy_coupling = np.zeros(4)
+        kappa_coupling = np.zeros(4)
+        
+        for other_idx in range(self.num_agents):
+            if other_idx == agent_idx:
+                continue
+            
+            other_agent = self.agents[other_idx]
+            relation = self.relationships.matrix[agent_idx, other_idx]
+            
+            # 協力関係
+            if relation > self.social_params.cooperation_threshold:
+                # エネルギー伝播
+                zetas = [
+                    self.social_params.zeta_physical,
+                    self.social_params.zeta_base,
+                    self.social_params.zeta_core,
+                    self.social_params.zeta_upper
+                ]
+                for layer in range(4):
+                    energy_coupling[layer] += zetas[layer] * other_agent.state.E[layer] * relation
+                
+                # κ伝播
+                xis = [
+                    self.social_params.xi_physical,
+                    self.social_params.xi_base,
+                    self.social_params.xi_core,
+                    self.social_params.xi_upper
+                ]
+                for layer in range(4):
+                    kappa_coupling[layer] += xis[layer] * (other_agent.state.kappa[layer] - agent.state.kappa[layer]) * relation
+            
+            # 競争関係
+            elif relation < self.social_params.competition_threshold:
+                omegas = [
+                    self.social_params.omega_physical,
+                    self.social_params.omega_base,
+                    self.social_params.omega_core,
+                    self.social_params.omega_upper
+                ]
+                for layer in range(4):
+                    energy_coupling[layer] += omegas[layer] * other_agent.state.E[layer] * abs(relation)
+        
+        return {'energy_coupling': energy_coupling, 'kappa_coupling': kappa_coupling}
