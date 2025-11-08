@@ -2,23 +2,80 @@
 SSD v10.0: Structured Memory and Concept Formation
 構造化記憶と概念形成
 
-理論的背景:
-- v9: フラットな記憶（個別経験の蓄積）
-- v10: 階層的記憶（クラスタリング + 概念抽出）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+理論的基盤: メタ整合慣性システム (Meta-Alignment Inertia System)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+本モジュールは、構造主観力学（SSD）における「メタ整合慣性システム」の
+直接的な実装である。
+
+【メタ整合慣性システムとは】
+個々の整合慣性（κ = 記憶）を、さらに上位のパターンによって処理・圧縮・
+再編成する高次の力学システム。「記憶を処理するための記憶システム」。
+
+【二段階学習モデル】
+
+1. 一次学習（個別の経験）:
+   dκ/dt = η(pj - ρj²) - λ(κ - κ_min)
+   → 個別の記憶として蓄積される
+
+2. 二次学習（記憶の圧縮）:
+   dκ^(meta)/dt = η_m f({κᵢ}, p, E) - λ_m(κ^(meta) - κ̄)
+   
+   - κ^(meta): メタ整合慣性（抽象化されたパターン、概念）
+   - {κᵢ}: 個別の整合慣性（記憶）の集合
+   - f(·): 圧縮関数（類似パターンの統合）
+   - E: 未処理圧（圧縮プロセスのトリガー）
+
+【実装における対応関係】
+
+| 理論概念 | 実装 |
+|---------|------|
+| κᵢ (個別記憶) | add_memory()で追加される各シグナル |
+| f({κᵢ}) (圧縮関数) | find_closest_cluster() + update() |
+| κ^(meta) (メタκ) | MemoryCluster.prototype_signal |
+| η_m (メタ学習率) | alpha = 1/(n_memories + 1) |
+| 抽象化言語 | Concept.name (自動生成) |
+| 確信度 | 1/variance (低分散 = 高確信) |
+
+【四層構造における抽象化言語】
+
+| 層 | 抽象化様式 | 実装での処理 |
+|----|----------|-------------|
+| PHYSICAL | 感覚的パターン化 | 姿勢・表情の統合 |
+| BASE | 手続き的パターン化 | 行動パターンの圧縮 |
+| CORE | 意味的パターン化 | 概念の自動命名 |
+| UPPER | 物語的パターン化 | 複数概念の統合 |
+
+【人間知性の本質】
+このシステムの高度な発達、特に上層構造における「物語的パターン化」の
+獲得こそが、人間を人間たらしめている構造的理由である。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+進化の歴史:
+- v9: フラットな記憶（個別経験の蓄積のみ）
+- v10: メタ整合慣性システムの実装（クラスタリング + 概念抽出）
 
 主な特徴:
-1. 類似記憶の自動クラスタリング
-2. プロトタイプ（典型例）の形成
-3. 概念の自動抽出と命名
-4. 概念ベースの高速推論
-5. 説明可能性の向上
+1. 類似記憶の自動クラスタリング（二次学習）
+2. プロトタイプ（典型例）の形成（メタκ）
+3. 概念の自動抽出と命名（抽象化言語）
+4. 概念ベースの高速推論（圧縮による効率化）
+5. 説明可能性の向上（パターンの言語化）
 
-哲学的意義:
-- Roschのプロトタイプ理論の実装
-- ポランニーの暗黙知の形式化
-- ピアジェの図式（schema）形成
+哲学的・心理学的基盤:
+- Roschのプロトタイプ理論: prototype_signalとして実装
+- ポランニーの暗黙知: 明示的概念への変換プロセス
+- ピアジェの図式（schema）: MemoryClusterとして形式化
+- SSDメタ整合慣性理論: 統一的な力学的説明
+
+参照:
+- 人間モジュール　メタ整合慣性システム(抽象化).md
+  https://github.com/HermannDegner/Structural-Subjectivity-Dynamics
 
 作成日: 2025年11月7日
+理論統合: 2025年11月8日
 バージョン: 10.0
 """
 
@@ -37,12 +94,19 @@ class MemoryCluster:
     """
     類似した記憶のクラスタ（プロトタイプ）
     
+    【理論的意義】
+    メタ整合慣性 κ^(meta) の実体。
+    複数の個別記憶 {κᵢ} を圧縮した上位パターン。
+    
+    Roschのプロトタイプ理論における「典型例」に相当し、
+    ピアジェの「図式（schema）」の力学的実装でもある。
+    
     Attributes:
-        prototype_signal: プロトタイプシグナル [7]（平均）
+        prototype_signal: プロトタイプシグナル [7]（平均 = メタκ）
         layer: 対象層
-        avg_outcome: 平均結果
-        n_memories: クラスタ内の記憶数
-        variance: シグナルの分散（概念の曖昧さ）
+        avg_outcome: 平均結果（このパターンの価値）
+        n_memories: クラスタ内の記憶数（確信度の源泉）
+        variance: シグナルの分散（概念の曖昧さ、1/variance = 確信度）
         last_updated: 最終更新時刻
     """
     prototype_signal: np.ndarray  # [7]
@@ -56,15 +120,20 @@ class MemoryCluster:
         """
         新しい記憶でプロトタイプを更新（オンライン平均）
         
+        【理論対応】
+        dκ^(meta)/dt = η_m f({κᵢ}, ...) の実装。
+        η_m = 1/(n+1) として、新しい記憶を統合する。
+        
         Args:
             new_signal: 新しいシグナル [7]
             new_outcome: 新しい結果
             timestamp: 時刻
         """
         # 学習率（サンプル数が多いほど小さく）
+        # これがメタ学習率 η_m に相当
         alpha = 1.0 / (self.n_memories + 1)
         
-        # プロトタイプの更新
+        # プロトタイプの更新（メタκの更新）
         delta = new_signal - self.prototype_signal
         self.prototype_signal += alpha * delta
         
@@ -72,6 +141,7 @@ class MemoryCluster:
         self.avg_outcome += alpha * (new_outcome - self.avg_outcome)
         
         # 分散の更新（オンライン分散）
+        # 低分散 = 明確なパターン = 高確信度
         self.variance += alpha * (np.sum(delta**2) - self.variance)
         
         # メタデータ更新
@@ -81,6 +151,10 @@ class MemoryCluster:
     def confidence(self) -> float:
         """
         クラスタの確信度（分散の逆数）
+        
+        【理論的意義】
+        メタ整合慣性 κ^(meta) の安定性指標。
+        低分散 → 明確なパターン → 高確信度
         
         Returns:
             確信度（低分散 = 高確信）
@@ -93,11 +167,23 @@ class Concept:
     """
     抽出された概念
     
-    概念は、十分な数の記憶を含むクラスタから生成される。
+    【理論的意義】
+    メタ整合慣性システムにおける「抽象化言語」の実体。
+    
+    十分な数の記憶（κᵢ）を統合したクラスタから、
+    明示的な「概念」として抽出される。これはポランニーの
+    暗黙知（tacit knowledge）が形式知（explicit knowledge）
+    へと変換されるプロセスの力学的モデル化である。
+    
+    四層構造における抽象化様式:
+    - PHYSICAL層: 感覚的パターン（"姿勢_危険"）
+    - BASE層: 手続き的パターン（"攻撃的_行動"）
+    - CORE層: 意味的パターン（"敵対的_関係"）
+    - UPPER層: 物語的パターン（"裏切り者の典型"）
     
     Attributes:
-        name: 概念名（自動生成）
-        cluster: 元となるクラスタ
+        name: 概念名（自動生成された抽象化言語）
+        cluster: 元となるクラスタ（メタκの実体）
         importance: 重要度（使用頻度や記憶数）
         activation_threshold: 活性化閾値
     """
@@ -109,6 +195,10 @@ class Concept:
     def matches(self, signal: np.ndarray) -> bool:
         """
         シグナルがこの概念に該当するか
+        
+        【理論的意義】
+        新しい経験が既存の概念（メタκ）と整合するかを判定。
+        パターン認識の高速化（圧縮の効果）。
         
         Args:
             signal: 入力シグナル [7]
@@ -122,6 +212,9 @@ class Concept:
     def activation_strength(self, signal: np.ndarray) -> float:
         """
         概念の活性化強度
+        
+        【理論的意義】
+        メタκの活性化レベル。確信度で重み付けされる。
         
         Args:
             signal: 入力シグナル [7]
@@ -166,11 +259,21 @@ def auto_generate_concept_name(cluster: MemoryCluster) -> str:
     """
     クラスタの特徴から概念名を自動生成
     
+    【理論的意義】
+    数値的なメタκ（prototype_signal）を、
+    人間が理解可能な「抽象化言語」へと変換する。
+    
+    これは各層における抽象化様式の実装:
+    - 物理層: 感覚的記述
+    - 基層: 行動的記述
+    - 中核: 意味的記述
+    - 上層: 価値的記述
+    
     Args:
         cluster: メモリクラスタ
     
     Returns:
-        概念名（例: "dangerous_aggressive_BASE"）
+        概念名（例: "dangerous_strong_aggressive_BASE"）
     """
     proto = cluster.prototype_signal
     
@@ -181,10 +284,10 @@ def auto_generate_concept_name(cluster: MemoryCluster) -> str:
         "defensive", "cooperative", "ideological"
     ]
     
-    # 層名
+    # 層名（抽象化レベル）
     layer_names = ["PHYSICAL", "BASE", "CORE", "UPPER"]
     
-    # 結果の極性
+    # 結果の極性（価値的評価）
     if cluster.avg_outcome < -0.5:
         valence = "dangerous"
     elif cluster.avg_outcome > 0.5:
@@ -212,6 +315,23 @@ def auto_generate_concept_name(cluster: MemoryCluster) -> str:
 class StructuredMemoryStore:
     """
     構造化記憶システム
+    
+    【理論的意義】
+    メタ整合慣性システムの中核実装。
+    
+    このクラスは、個別の記憶（κᵢ）を自動的にクラスタリングし、
+    上位のパターン（κ^(meta)）へと圧縮する圧縮関数 f({κᵢ}) を実行する。
+    
+    【二次学習プロセス】
+    1. 新しい記憶の追加（add_memory）
+    2. 類似クラスタの検索（find_closest_cluster）← f の一部
+    3. 既存クラスタへの統合 or 新規作成 ← 圧縮の実行
+    4. 概念の自動抽出（extract_concepts）← 抽象化言語の生成
+    
+    【睡眠との対応】
+    理論では「睡眠中に圧縮が進む」とされるが、
+    本実装では経験時にリアルタイムで圧縮を実行する。
+    将来的にはバッチ圧縮モード（睡眠シミュレーション）の追加も可能。
     
     記憶を自動的にクラスタリングし、概念を抽出する。
     """
@@ -272,26 +392,33 @@ class StructuredMemoryStore:
         """
         記憶を追加（自動クラスタリング）
         
+        【理論対応】
+        これが圧縮関数 f({κᵢ}, p, E) の実行プロセス。
+        
+        1. 新しいκᵢ（記憶）を受け取る
+        2. 既存のκ^(meta)（クラスタ）との類似度を計算
+        3. 閾値以下なら統合（圧縮）、超えるなら新規作成
+        
         Args:
-            signal: シグナル [7]
+            signal: シグナル [7]（新しいκᵢ）
             layer: 層
-            outcome: 結果
+            outcome: 結果（このパターンの価値）
             timestamp: 時刻
         """
         self.total_memories_added += 1
         
-        # 最も近いクラスタを探す
+        # 最も近いクラスタを探す（類似パターンの検索）
         result = self.find_closest_cluster(signal, layer)
         
         if result is not None:
             closest, dist = result
             
             if dist < self.cluster_threshold:
-                # 既存クラスタに統合
+                # 既存クラスタに統合（メタκへの圧縮実行）
                 closest.update(signal, outcome, timestamp)
                 return
         
-        # 新規クラスタを作成
+        # 新規クラスタを作成（新しいパターンの発見）
         new_cluster = MemoryCluster(
             prototype_signal=signal.copy(),
             layer=layer,

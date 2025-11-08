@@ -61,20 +61,34 @@
 `../docs/V9_DYNAMIC_INTERPRETATION_PROPOSAL.md` 参照
 
 #### **ssd_memory_structure.py** (19.9KB)
-記憶構造システム（V10提案）
+記憶構造システム（V10提案）- **メタ整合慣性システムの実装**
 
 **主要クラス:**
-- `MemoryStructure` - 記憶構造
-- `MemoryLayer` - 記憶層
+- `StructuredMemoryStore` - 構造化記憶ストア（メタκシステムの中核）
+- `MemoryCluster` - 記憶クラスタ（メタ整合慣性 κ^(meta) の実体）
+- `Concept` - 抽出された概念（抽象化言語）
 
 **機能:**
-- 多層記憶システム
-- 短期/長期記憶の統合
-- 記憶の固定化
-- 想起と忘却
+- 類似記憶の自動クラスタリング（二次学習）
+- プロトタイプ（典型例）の形成（メタκ）
+- 概念の自動抽出と命名（抽象化言語）
+- 概念ベースの高速推論（圧縮による効率化）
+- 説明可能性の向上（パターンの言語化）
 
 **理論的背景:**
-`../docs/V10_MEMORY_STRUCTURE_PROPOSAL.md` 参照
+- **SSD理論:** メタ整合慣性システム（Meta-Alignment Inertia System）
+  - 個別の記憶（κᵢ）を上位パターン（κ^(meta)）へ圧縮
+  - 二次学習: dκ^(meta)/dt = η_m f({κᵢ}, p, E)
+  - 人間知性の本質: 物語的パターン化の実装
+  
+- **心理学的基盤:**
+  - Roschのプロトタイプ理論
+  - ポランニーの暗黙知（tacit → explicit knowledge）
+  - ピアジェの図式（schema）形成
+
+- **ドキュメント:**
+  - `../docs/V10_MEMORY_STRUCTURE_PROPOSAL.md`
+  - 元理論: [人間モジュール　メタ整合慣性システム(抽象化).md](https://github.com/HermannDegner/Structural-Subjectivity-Dynamics/blob/main/Human_Module/人間モジュール　メタ整合慣性システム(抽象化).md)
 
 ## 🌐 社会システムの実装
 
