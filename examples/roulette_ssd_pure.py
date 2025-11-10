@@ -77,17 +77,74 @@ class RouletteConfig:
 
 # ===== ルーレット =====
 class Roulette:
-    """ルーレットゲーム"""
+    """ルーレットゲーム（偏りあり版）"""
     
-    def __init__(self):
+    def __init__(self, biased_number: int = 7, bias_weight: float = 2.0):
+        """
+        Args:
+            biased_number: 出やすくする数字（デフォルト: 7）
+            bias_weight: 出やすさの倍率（デフォルト: 2.0倍）
+        """
         self.config = RouletteConfig()
+        self.biased_number = biased_number
+        self.bias_weight = bias_weight
+        
+        # 確率分布の構築
+        self._build_probability_distribution()
+        
+        # 統計
+        self.spin_count = 0
+        self.biased_number_count = 0
+    
+    def _build_probability_distribution(self):
+        """偏りのある確率分布を構築"""
+        # bias_weight が 9999 以上なら完全に固定（100%その数字）
+        if self.bias_weight >= 9999:
+            self.probabilities = [0.0] * (self.config.MAX_NUMBER + 1)
+            self.probabilities[self.biased_number] = 1.0
+            print(f"🎲 完全固定ルーレット: {self.biased_number}番が100%出る")
+        else:
+            # 基本: 各数字の重み = 1.0
+            weights = [1.0] * (self.config.MAX_NUMBER + 1)
+            
+            # 偏り数字の重みを増加
+            weights[self.biased_number] = self.bias_weight
+            
+            # 正規化（確率の合計が1.0になるように）
+            total_weight = sum(weights)
+            self.probabilities = [w / total_weight for w in weights]
+            
+            print(f"🎲 偏りルーレット設定: {self.biased_number}番が通常の{self.bias_weight}倍出やすい")
+            print(f"   {self.biased_number}番の理論確率: {self.probabilities[self.biased_number]:.2%} (通常: {1.0/37:.2%})")
     
     def spin(self) -> int:
-        """ルーレットを回す"""
-        result = random.randint(0, self.config.MAX_NUMBER)
+        """ルーレットを回す（偏りあり）"""
+        # 確率分布に従って数字を選択
+        result = random.choices(
+            range(self.config.MAX_NUMBER + 1),
+            weights=self.probabilities,
+            k=1
+        )[0]
+        
+        # 統計更新
+        self.spin_count += 1
+        if result == self.biased_number:
+            self.biased_number_count += 1
+        
         color = self._get_color(result)
         print(f"\n🎰 ルーレット結果: {result} {color}")
         return result
+    
+    def get_statistics(self) -> str:
+        """統計情報を取得"""
+        if self.spin_count == 0:
+            return "まだスピンされていません"
+        
+        actual_rate = self.biased_number_count / self.spin_count
+        theoretical_rate = self.probabilities[self.biased_number]
+        
+        return (f"🎲 統計: {self.biased_number}番が {self.biased_number_count}/{self.spin_count}回出現 "
+                f"({actual_rate:.2%}, 理論値: {theoretical_rate:.2%})")
     
     def _get_color(self, number: int) -> str:
         """数字の色を取得"""
@@ -207,6 +264,10 @@ class SSDPlayerPure(PlayerBase):
         self.last_color = None  # 前回賭けた色（トレンド追従の偏見用）
         self.last_bet_type = None  # 前回の賭け方
         self.last_bet_value = None  # 前回の賭け値
+        
+        # 数字の出現頻度を記憶（κによる学習用）
+        # 各数字に対するκ値を持つ（0-36の37個）
+        self.number_kappa = [0.5] * 37  # 初期値0.5（中立）
     
     def _initialize_personality(self):
         """性格に応じたκの初期値設定
@@ -278,7 +339,8 @@ class SSDPlayerPure(PlayerBase):
         # ベット値の決定（数字の場合）
         bet_value = None
         if bet_type == "number":
-            bet_value = random.randint(1, RouletteConfig.MAX_NUMBER)
+            # 数字のκ値に基づいて選択（学習した頻出数字を優先）
+            bet_value = self._select_number_by_kappa()
         
         # 賭け方を記憶（SSD更新時に使用）
         self.last_bet_type = bet_type
@@ -367,6 +429,45 @@ class SSDPlayerPure(PlayerBase):
         max_bet = min(100, int(self.coins * 0.2))
         return max(10, min(bet_amount, max_bet))
     
+    def _select_number_by_kappa(self) -> int:
+        """κ値に基づいて数字を選択（学習した頻出数字を優先）
+        
+        number_kappa[i]が高い数字ほど選ばれやすい
+        完全にκに従うのではなく、確率的に選択（探索も残す）
+        """
+        # 1-36のみ（0は別途ゼロベットで扱う）
+        weights = []
+        for i in range(1, 37):
+            # κ値を指数関数で確率に変換（強調）
+            # κ=0.5(初期値) → weight=1.0
+            # κ=5.0(よく出る) → weight=148
+            # κ=10.0(超頻出) → weight=22026
+            weight = pow(2.718, (self.number_kappa[i] - 0.5) * 2)
+            weights.append(weight)
+        
+        # 重み付き選択
+        numbers = list(range(1, 37))
+        selected = random.choices(numbers, weights=weights, k=1)[0]
+        return selected
+    
+    def _learn_number_frequency(self, result_number: int):
+        """出た数字のκを強化（頻出数字を覚える）
+        
+        result_numberが出るたびに、そのκを増やす
+        これにより、よく出る数字への「慣性」が育つ
+        """
+        if 0 <= result_number <= 36:
+            # κ増加（勝敗に関わらず、出た数字のκを強化）
+            # 学習率: 0.1（徐々に学習）
+            learning_rate = 0.1
+            self.number_kappa[result_number] += learning_rate
+            
+            # 減衰: 他の数字を少し減らす（相対的な重要度を保つ）
+            decay_rate = 0.002
+            for i in range(37):
+                if i != result_number:
+                    self.number_kappa[i] = max(0.1, self.number_kappa[i] - decay_rate)
+    
     def _speak_bet(self, bet_type: str, bet_value: Optional[int], bet_amount: int,
                    w_base: float, w_core: float, w_upper: float):
         """ベット時の独り言（κ構造の可視化）"""
@@ -394,6 +495,10 @@ class SSDPlayerPure(PlayerBase):
     def update_result(self, won: bool, payout: int, bet_amount: int, result_number: int = None):
         """結果更新（親クラス + SSD更新）"""
         super().update_result(won, payout, bet_amount)
+        
+        # 数字κの学習: 出た数字のκを強化
+        if result_number is not None:
+            self._learn_number_frequency(result_number)
         
         # SSD更新（これが唯一の学習メカニズム）
         # 前回の賭け方と結果番号を使用
@@ -563,6 +668,131 @@ class Casino:
         return (self.profit / self.total_bets) * 100
 
 
+# ===== 強化学習モードプレイヤー =====
+class RLPlayer(PlayerBase):
+    """強化学習モードのプレイヤー（Q学習風）
+    
+    SSDとの違い:
+    - E（感情）を無視
+    - 性格差なし（全員が期待値最大化）
+    - 高速学習（learning_rate高め）
+    - 減衰なし（純粋な価値累積）
+    """
+    
+    def __init__(self, name: str, coins: int, learning_rate: float = 0.05):
+        super().__init__(name, coins)
+        self.learning_rate = learning_rate
+        
+        # Q値的な数字の価値（0-36）
+        self.number_value = [0.0] * 37
+        # 色/偶奇の価値
+        self.color_value = {"red": 0.0, "black": 0.0}
+        self.parity_value = {"even": 0.0, "odd": 0.0}
+        self.zero_value = 0.0
+        
+        # 探索率（ε-greedy）
+        self.epsilon = 0.1  # 10%はランダム探索
+        
+        # ランダム学習用パラメータ
+        self.bet_reward_weight = 0.1  # ベット報酬の重み（デフォルトは1.0だが大幅減）
+        
+        # 観察学習の強度
+        self.observation_weight = 10.0
+        # 減衰率
+        self.decay_rate = 0.1
+        
+        # 記憶
+        self.last_bet_type = None
+        self.last_bet_value = None
+        
+        self.color = '\033[96m'  # 強化学習くんはシアン
+    
+    def place_bet(self) -> tuple:
+        """ベット配置（ε-greedy）"""
+        if self.coins < 10:
+            return None, None, 0
+        
+        # ε-greedy探索
+        if random.random() < self.epsilon:
+            # ランダム探索
+            bet_type = random.choice(["red", "black", "even", "odd", "number", "zero"])
+            if bet_type == "number":
+                bet_value = random.randint(1, 36)
+            elif bet_type in ["red", "black", "even", "odd"]:
+                bet_value = bet_type
+            else:
+                bet_value = "0"
+        else:
+            # 価値最大の選択肢を選ぶ
+            bet_type, bet_value = self._select_best_action()
+        
+        # ベット額（固定）
+        bet_amount = min(20, int(self.coins * 0.2))
+        
+        # 記憶
+        self.last_bet_type = bet_type
+        self.last_bet_value = bet_value
+        
+        # 簡潔なログ
+        if random.random() < 0.3:  # 30%の確率で発言
+            print(f"{self.color}「{bet_value}に{bet_amount}コイン（Q学習）」{Colors.RESET}")
+        
+        return bet_type, bet_value, bet_amount
+    
+    def _select_best_action(self) -> tuple:
+        """価値が最大の行動を選択"""
+        best_value = -999999
+        best_action = ("red", "red")
+        
+        # 数字の価値をチェック
+        for num in range(37):
+            if self.number_value[num] > best_value:
+                best_value = self.number_value[num]
+                if num == 0:
+                    best_action = ("zero", "0")
+                else:
+                    best_action = ("number", num)
+        
+        # 色の価値をチェック
+        for color in ["red", "black"]:
+            if self.color_value[color] > best_value:
+                best_value = self.color_value[color]
+                best_action = (color, color)
+        
+        # 偶奇の価値をチェック
+        for parity in ["even", "odd"]:
+            if self.parity_value[parity] > best_value:
+                best_value = self.parity_value[parity]
+                best_action = (parity, parity)
+        
+        return best_action
+    
+    def update_result(self, won: bool, payout: int, bet_amount: int, result_number: int = None):
+        """Q学習的な価値更新"""
+        super().update_result(won, payout, bet_amount)
+        
+        # 報酬計算
+        reward = (payout - bet_amount) if won else -bet_amount
+        
+        # 前回の行動の価値を更新（単純なQ更新）- bet_reward_weightで減衰
+        if self.last_bet_type == "number" or self.last_bet_type == "zero":
+            num = 0 if self.last_bet_value == "0" else self.last_bet_value
+            self.number_value[num] += self.learning_rate * reward * self.bet_reward_weight
+        elif self.last_bet_type in ["red", "black"]:
+            self.color_value[self.last_bet_type] += self.learning_rate * reward * self.bet_reward_weight
+        elif self.last_bet_type in ["even", "odd"]:
+            self.parity_value[self.last_bet_type] += self.learning_rate * reward * self.bet_reward_weight
+        
+        # 観察学習：出た数字を見て学習（SSDのように）
+        # ベットしていなくても、出現頻度から価値を推定
+        self.number_value[result_number] += self.observation_weight  # 出た数字の価値を上昇
+        
+        # 減衰：出なかった数字の価値を減少（SSD風）
+        for i in range(37):
+            if i != result_number:
+                self.number_value[i] = max(-100, self.number_value[i] - self.decay_rate)
+
+
 # ===== ゲーム進行 =====
 def play_round(players: List[PlayerBase], roulette: Roulette, casino: Casino, verbose: bool = True):
     """1ラウンドプレイ"""
@@ -639,6 +869,18 @@ def play_round(players: List[PlayerBase], roulette: Roulette, casino: Casino, ve
 # ===== メイン処理 =====
 def main():
     """メイン処理"""
+    import argparse
+    
+    # コマンドライン引数のパース
+    parser = argparse.ArgumentParser(description='ルーレット with SSD AI (偏りあり版)')
+    parser.add_argument('--biased-number', type=int, default=7, 
+                        help='出やすくする数字 (デフォルト: 7)')
+    parser.add_argument('--bias-weight', type=float, default=10.0,
+                        help='出やすさの倍率 (デフォルト: 10.0倍)')
+    parser.add_argument('--rounds', type=int, default=100,
+                        help='ラウンド数 (デフォルト: 100)')
+    args = parser.parse_args()
+    
     print("="*60)
     print("🎰 ルーレット with SSD AI (Pure Theoretical版)")
     print("="*60)
@@ -648,8 +890,11 @@ def main():
     print("  3. Eの自然減衰（ラウンド開始時に時間経過）")
     print("  4. κを行動決定に直接使用")
     print("="*60)
+    print(f"偏り設定: {args.biased_number}番が通常の{args.bias_weight}倍出やすい")
+    print(f"ラウンド数: {args.rounds}")
+    print("="*60)
     
-    # プレイヤー作成（7人）
+    # プレイヤー作成（SSD 6人 + RL 1人）
     initial_coins = 1000
     players = [
         SSDPlayerPure("太郎", "cautious", initial_coins),
@@ -658,15 +903,15 @@ def main():
         SSDPlayerPure("田中", "cautious", initial_coins),
         SSDPlayerPure("佐藤", "aggressive", initial_coins),
         SSDPlayerPure("鈴木", "balanced", initial_coins),
-        SSDPlayerPure("高橋", "balanced", initial_coins),
+        RLPlayer("RL-Agent", initial_coins, learning_rate=0.05),  # 全員同じ初期資金
     ]
     
     # ゲーム初期化
-    roulette = Roulette()
+    roulette = Roulette(biased_number=args.biased_number, bias_weight=args.bias_weight)
     casino = Casino()
     
     # ラウンド実行
-    num_rounds = 20
+    num_rounds = args.rounds
     for round_num in range(1, num_rounds + 1):
         print(f"\n{'#'*60}")
         print(f"🎲 ラウンド {round_num}/{num_rounds}")
@@ -706,6 +951,22 @@ def main():
             dominant_kappa = np.argmax(kappa)
             layer_names = ['ハイリスク', 'セオリー', '探索']
             print(f"  └ 心理状態: {layer_names[dominant_kappa]}戦略が優勢")
+            
+            # 数字κのトップ5を表示
+            top_numbers = sorted(enumerate(player.number_kappa), key=lambda x: x[1], reverse=True)[:5]
+            top_display = ", ".join([f"{num}番({kappa:.2f})" for num, kappa in top_numbers])
+            print(f"  └ 学習した頻出数字: {top_display}")
+        
+        # RLプレイヤーの場合はQ値を表示
+        elif isinstance(player, RLPlayer):
+            # 数字のQ値トップ5
+            top_numbers = sorted(enumerate(player.number_value), key=lambda x: x[1], reverse=True)[:5]
+            top_display = ", ".join([f"{num}番({val:.1f})" for num, val in top_numbers])
+            print(f"  └ 学習した数字Q値: {top_display}")
+            
+            # 色/偶奇のQ値
+            print(f"  └ 色Q値: 赤={player.color_value['red']:.1f}, 黒={player.color_value['black']:.1f}")
+            print(f"  └ 偶奇Q値: 偶数={player.parity_value['even']:.1f}, 奇数={player.parity_value['odd']:.1f}")
     
     # カジノ統計
     print(f"\n{'='*60}")
@@ -720,6 +981,11 @@ def main():
     print(f"実測ハウスエッジ: {house_edge:.2f}%")
     print(f"理論ハウスエッジ: {theoretical_edge:.2f}%")
     print(f"差異: {house_edge - theoretical_edge:+.2f}%")
+    
+    # ルーレット統計
+    print(f"\n{'='*60}")
+    print(roulette.get_statistics())
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
