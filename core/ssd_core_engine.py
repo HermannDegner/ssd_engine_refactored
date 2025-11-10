@@ -70,6 +70,10 @@ class SSDCoreParams:
     enable_dynamic_theta: bool = True
     theta_sensitivity: float = 0.3
     
+    # 確率的跳躍パラメータ（温度T）
+    enable_stochastic_leap: bool = False  # False=決定論的、True=確率的
+    temperature_T: float = 0.0  # 0=完全決定論、>0=確率性増加
+    
     # Ohm's law パラメータ
     G0: float = 0.5  # ベース導電率
     g: float = 0.7   # 慣性ゲイン
@@ -107,6 +111,9 @@ class SSDCoreState:
     
     # 跳躍履歴
     leap_history: List[Tuple[float, LeapType]] = field(default_factory=list)
+    
+    # 診断情報（オプション）
+    diagnostics: Dict = field(default_factory=dict)
     
     def __post_init__(self):
         """NumPy配列に変換"""
@@ -194,14 +201,31 @@ class SSDCoreEngine:
         Returns:
             (跳躍発生フラグ, 跳躍したレイヤーのインデックス)
         """
+        # 確率的跳躍が無効、または温度が0の場合は決定論的判定
+        if not self.params.enable_stochastic_leap or self.params.temperature_T <= 0:
+            # 決定論的跳躍（従来の実装）
+            for i in range(self.num_layers):
+                theta_i = self.compute_dynamic_theta(state, pressure, i)
+                
+                if state.E[i] >= theta_i:
+                    # 確率的跳躍判定（互換性のため残す）
+                    leap_prob = min(1.0, (state.E[i] - theta_i) / theta_i)
+                    if np.random.random() < leap_prob:
+                        return True, i
+            return False, None
+        
+        # 確率的跳躍（温度Tベース）
         for i in range(self.num_layers):
             theta_i = self.compute_dynamic_theta(state, pressure, i)
+            delta = state.E[i] - theta_i
             
-            if state.E[i] >= theta_i:
-                # 確率的跳躍判定
-                leap_prob = min(1.0, (state.E[i] - theta_i) / theta_i)
-                if np.random.random() < leap_prob:
-                    return True, i
+            # シグモイド確率: P(leap) = 1 / (1 + exp(-delta / T))
+            # 低T: ほぼ決定論（delta>0で確実、delta<0でほぼ0）
+            # 高T: ランダム性増加（delta=0でも50%）
+            prob = 1.0 / (1.0 + np.exp(-delta / self.params.temperature_T))
+            
+            if np.random.rand() < prob:
+                return True, i
         
         return False, None
     
@@ -257,6 +281,14 @@ class SSDCoreEngine:
         # 跳躍検出
         leap_occurred, leap_layer = self.detect_leap(state, pressure)
         
+        # 診断情報を記録（オプション）
+        theta_dynamic = np.array([
+            self.compute_dynamic_theta(state, pressure, i) 
+            for i in range(self.num_layers)
+        ])
+        power = self.compute_structural_power(state, pressure)
+        dominant_layer = int(np.argmax(power))
+        
         if leap_occurred:
             state = self.execute_leap(state, leap_layer)
         
@@ -265,7 +297,14 @@ class SSDCoreEngine:
             E=state.E.copy(),
             kappa=state.kappa.copy(),
             t=state.t + dt,
-            leap_history=state.leap_history.copy()
+            leap_history=state.leap_history.copy(),
+            diagnostics={
+                'theta_dynamic': theta_dynamic.copy(),
+                'power': power.copy(),
+                'dominant_layer': dominant_layer,
+                'leap_occurred': leap_occurred,
+                'leap_layer': leap_layer
+            }
         )
         
         # 各レイヤーの更新

@@ -787,6 +787,24 @@ class RLPlayer(PlayerBase):
         # ベットしていなくても、出現頻度から価値を推定
         self.number_value[result_number] += self.observation_weight  # 出た数字の価値を上昇
         
+        # 色の観察学習（赤=1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36、黒=それ以外の1-36）
+        RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
+        if result_number != 0:  # 0はゼロなので色なし
+            if result_number in RED_NUMBERS:
+                self.color_value["red"] += self.observation_weight
+                self.color_value["black"] = max(-100, self.color_value["black"] - self.decay_rate)
+            else:  # 黒
+                self.color_value["black"] += self.observation_weight
+                self.color_value["red"] = max(-100, self.color_value["red"] - self.decay_rate)
+        
+        # 偶奇の観察学習
+        if result_number != 0 and result_number % 2 == 0:
+            self.parity_value["even"] += self.observation_weight
+            self.parity_value["odd"] = max(-100, self.parity_value["odd"] - self.decay_rate)
+        elif result_number != 0 and result_number % 2 == 1:
+            self.parity_value["odd"] += self.observation_weight
+            self.parity_value["even"] = max(-100, self.parity_value["even"] - self.decay_rate)
+        
         # 減衰：出なかった数字の価値を減少（SSD風）
         for i in range(37):
             if i != result_number:

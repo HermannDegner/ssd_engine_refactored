@@ -26,11 +26,13 @@ try:
         SSDCoreEngine, SSDCoreParams, SSDCoreState,
         LeapType, create_default_state
     )
+    from .ssd_nonlinear_transfer import NonlinearInterlayerTransfer
 except ImportError:
     from ssd_core_engine import (
         SSDCoreEngine, SSDCoreParams, SSDCoreState,
         LeapType, create_default_state
     )
+    from ssd_nonlinear_transfer import NonlinearInterlayerTransfer
 
 
 class HumanLayer(Enum):
@@ -164,7 +166,13 @@ class HumanAgent:
         # 状態初期化
         self.state = create_default_state(num_layers=4)
         
-        # 層間転送行列（4x4）
+        # [Phase 3] 非線形転送器（1回だけ生成して使い回し）
+        self._nl_transfer = NonlinearInterlayerTransfer()
+        
+        # 層間転送の全体強度ノブ（必要ならチューニング）
+        self._interlayer_strength = 1.0
+        
+        # 旧式の層間転送行列（互換性のため残す）
         self.interlayer_matrix = self._build_interlayer_matrix()
     
     def _build_interlayer_matrix(self) -> np.ndarray:
@@ -204,20 +212,19 @@ class HumanAgent:
     
     def _compute_interlayer_transfer(self) -> np.ndarray:
         """
-        [Phase 3] 層間転送の計算
+        [Phase 3] 層間転送（非線形）の計算
         
         Returns:
-            各層へのエネルギー転送量（4次元ベクトル）
+            dE_inter (4,) : 単位時間あたりの層間転送による dE
         """
-        transfer = np.zeros(4)
+        E = self.state.E
+        kappa = self.state.kappa
         
-        for i in range(4):
-            for j in range(4):
-                if i != j:
-                    # j層からi層への転送
-                    transfer[i] += self.interlayer_matrix[i][j] * self.state.E[j]
+        # 非線形転送モジュールで計算（dtなし）
+        dE_inter = self._nl_transfer.compute_transfer(E, kappa)
         
-        return transfer
+        # 必要なら全体強度ノブでスケール
+        return self._interlayer_strength * dE_inter
     
     def step(self, pressure: HumanPressure, dt: float = 0.1) -> None:
         """

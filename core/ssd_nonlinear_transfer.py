@@ -16,9 +16,16 @@ v5/v6との違い:
 
 from dataclasses import dataclass
 from typing import Callable, Optional
+from enum import Enum
 import numpy as np
 
-from ssd_human_module import HumanLayer
+
+class HumanLayer(Enum):
+    """人間モジュールの四層構造（循環インポート回避のため再定義）"""
+    PHYSICAL = 0  # 物理層（最も動かしにくい）
+    BASE = 1      # 基層（本能的）
+    CORE = 2      # 中核層（規範的）
+    UPPER = 3     # 上層（理念的、最も動かしやすい）
 
 
 @dataclass
@@ -148,17 +155,17 @@ class NonlinearInterlayerTransfer:
         self,
         E: np.ndarray,
         kappa: np.ndarray,
-        dt: float = 0.1
     ) -> np.ndarray:
         """非線形層間転送を計算
         
         Args:
             E: エネルギーベクトル [E_physical, E_base, E_core, E_upper]
             kappa: 整合慣性ベクトル [κ_physical, κ_base, κ_core, κ_upper]
-            dt: 時間刻み
             
         Returns:
-            転送量ベクトル [transfer_physical, transfer_base, transfer_core, transfer_upper]
+            単位時間あたりの転送dEベクトル（微分）
+            [dE_physical, dE_base, dE_core, dE_upper]
+            ※ Core側で * dt が掛かるため、ここでは掛けない
         """
         transfer = np.zeros(4)
         
@@ -176,8 +183,8 @@ class NonlinearInterlayerTransfer:
                 E_source, E_target, kappa_source, kappa_target
             )
             
-            # 基本係数とdtを適用
-            transfer[tgt_idx] += func_def.base_coefficient * transfer_amount * dt
+            # 基本係数のみ適用（dtはCore側で掛かる）
+            transfer[tgt_idx] += func_def.base_coefficient * transfer_amount
         
         return transfer
     
