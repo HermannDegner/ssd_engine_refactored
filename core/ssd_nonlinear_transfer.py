@@ -1,172 +1,98 @@
 """
-非線形層間転送システム (Nonlinear Interlayer Transfer)
-======================================================
+非線形層間転送システム - 新コア対応版
+=========================================
 
 Phase 3の理論的整合を高めるための、非線形層間転送実装。
-
-核心原理:
-- 転送量は転送元（E_source）だけでなく、転送先（E_target）にも依存
-- 例: 理念による本能の抑制は、本能が強すぎると効かなくなる
-- 例: 本能から規範への転送は、規範エネルギーが飽和すると減少
-
-v5/v6との違い:
-- v5: transfer = matrix[i][j] * E[j] (線形)
-- v7: transfer = f(E_source, E_target, κ_source, κ_target) (非線形)
+新Log-Alignmentコアエンジンに統合対応。
 """
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Dict, List
 from enum import Enum
 import numpy as np
 
 
-class HumanLayer(Enum):
-    """人間モジュールの四層構造（循環インポート回避のため再定義）"""
-    PHYSICAL = 0  # 物理層（最も動かしにくい）
-    BASE = 1      # 基層（本能的）
-    CORE = 2      # 中核層（規範的）
-    UPPER = 3     # 上層（理念的、最も動かしやすい）
+class StructuralLayer(Enum):
+    """構造層（新コア対応版）"""
+    PHYSICAL = 0
+    BASE = 1
+    CORE = 2
+    UPPER = 3
 
 
 @dataclass
 class NonlinearTransferFunction:
-    """非線形転送関数の定義
-    
-    Args:
-        source_layer: 転送元の層
-        target_layer: 転送先の層
-        base_coefficient: 基本係数（v5のmatrix[i][j]相当）
-        transfer_function: 転送量計算関数
-        description: 説明
-    """
-    source_layer: HumanLayer
-    target_layer: HumanLayer
+    """非線形転送関数の定義"""
+    source_layer: StructuralLayer
+    target_layer: StructuralLayer
     base_coefficient: float
     transfer_function: Callable[[float, float, float, float], float]
     description: str
+    log_align_adaptation: float = 1.0
 
 
 class NonlinearInterlayerTransfer:
-    """非線形層間転送システム
-    
-    v5の線形モデルを拡張し、転送元・転送先の両方のエネルギーと
-    整合慣性（κ）に依存する非線形モデルを実装
-    """
+    """非線形層間転送システム（新コア対応版）"""
     
     def __init__(self):
-        """初期化"""
-        self.transfer_functions: list[NonlinearTransferFunction] = []
-        
-        # デフォルトの非線形転送関数を登録
+        self.transfer_functions: List[NonlinearTransferFunction] = []
         self._register_default_functions()
-    
+        self.global_strength: float = 1.0
+        self.log_align_compensation: bool = True
+        
     def _register_default_functions(self):
         """デフォルトの非線形転送関数を登録"""
         
-        # 1. UPPER → BASE: 理念による本能の抑制（飽和抑制）
+        # 1. UPPER → BASE: 理念による本能の抑制
         self.transfer_functions.append(
             NonlinearTransferFunction(
-                source_layer=HumanLayer.UPPER,
-                target_layer=HumanLayer.BASE,
-                base_coefficient=-0.15,  # 負 = 抑制
+                source_layer=StructuralLayer.UPPER,
+                target_layer=StructuralLayer.BASE,
+                base_coefficient=-0.12,
                 transfer_function=self._saturating_suppression,
-                description="理念による本能の抑制（本能が強すぎると効かない）"
+                description="理念による本能の抑制",
+                log_align_adaptation=1.2
             )
         )
         
-        # 2. BASE → CORE: 本能から規範への転送（飽和転送）
+        # 2. BASE → CORE: 本能から規範への転送
         self.transfer_functions.append(
             NonlinearTransferFunction(
-                source_layer=HumanLayer.BASE,
-                target_layer=HumanLayer.CORE,
-                base_coefficient=0.1,
-                transfer_function=self._saturating_transfer,
-                description="本能→規範（規範が飽和すると転送量減少）"
-            )
-        )
-        
-        # 3. CORE → BASE: 規範による本能の抑制（κ依存）
-        self.transfer_functions.append(
-            NonlinearTransferFunction(
-                source_layer=HumanLayer.CORE,
-                target_layer=HumanLayer.BASE,
-                base_coefficient=-0.1,
-                transfer_function=self._kappa_weighted_suppression,
-                description="規範による本能の抑制（κ_coreが高いほど効果的）"
-            )
-        )
-        
-        # 4. CORE → UPPER: 規範から理念への転送（促進転送）
-        self.transfer_functions.append(
-            NonlinearTransferFunction(
-                source_layer=HumanLayer.CORE,
-                target_layer=HumanLayer.UPPER,
+                source_layer=StructuralLayer.BASE,
+                target_layer=StructuralLayer.CORE,
                 base_coefficient=0.08,
-                transfer_function=self._facilitative_transfer,
-                description="規範→理念（両方のκが高いほど促進）"
+                transfer_function=self._saturating_transfer,
+                description="本能→規範転送",
+                log_align_adaptation=0.9
             )
         )
         
-        # 5. UPPER → CORE: 理念から規範への転送（強化転送）
+        # 3. CORE → BASE: 規範による本能の抑制
         self.transfer_functions.append(
             NonlinearTransferFunction(
-                source_layer=HumanLayer.UPPER,
-                target_layer=HumanLayer.CORE,
-                base_coefficient=0.05,
-                transfer_function=self._reinforcement_transfer,
-                description="理念→規範（理念が強いほど規範を強化）"
+                source_layer=StructuralLayer.CORE,
+                target_layer=StructuralLayer.BASE,
+                base_coefficient=-0.08,
+                transfer_function=self._kappa_weighted_suppression,
+                description="規範による本能の抑制",
+                log_align_adaptation=1.1
             )
         )
         
-        # 6. BASE → PHYSICAL: 本能から身体への転送（疲労依存）
+        # 4. PHYSICAL → BASE: 身体から本能への転送
         self.transfer_functions.append(
             NonlinearTransferFunction(
-                source_layer=HumanLayer.BASE,
-                target_layer=HumanLayer.PHYSICAL,
-                base_coefficient=0.05,
-                transfer_function=self._fatigue_dependent_transfer,
-                description="本能→身体（身体が疲労すると転送量増加）"
-            )
-        )
-        
-        # 7. PHYSICAL → BASE: 身体から本能への転送（痛覚転送）
-        self.transfer_functions.append(
-            NonlinearTransferFunction(
-                source_layer=HumanLayer.PHYSICAL,
-                target_layer=HumanLayer.BASE,
-                base_coefficient=0.2,
+                source_layer=StructuralLayer.PHYSICAL,
+                target_layer=StructuralLayer.BASE,
+                base_coefficient=0.15,
                 transfer_function=self._pain_transfer,
-                description="身体→本能（身体的苦痛が本能的恐怖を引き起こす）"
-            )
-        )
-        
-        # 8. UPPER → UPPER: 自己反省（自己抑制）
-        self.transfer_functions.append(
-            NonlinearTransferFunction(
-                source_layer=HumanLayer.UPPER,
-                target_layer=HumanLayer.UPPER,
-                base_coefficient=-0.03,
-                transfer_function=self._self_reflection,
-                description="自己反省（理念が高まると自己抑制が働く）"
+                description="身体→本能転送（痛覚）",
+                log_align_adaptation=1.4
             )
         )
     
-    def compute_transfer(
-        self,
-        E: np.ndarray,
-        kappa: np.ndarray,
-    ) -> np.ndarray:
-        """非線形層間転送を計算
-        
-        Args:
-            E: エネルギーベクトル [E_physical, E_base, E_core, E_upper]
-            kappa: 整合慣性ベクトル [κ_physical, κ_base, κ_core, κ_upper]
-            
-        Returns:
-            単位時間あたりの転送dEベクトル（微分）
-            [dE_physical, dE_base, dE_core, dE_upper]
-            ※ Core側で * dt が掛かるため、ここでは掛けない
-        """
+    def compute_transfer(self, E: np.ndarray, kappa: np.ndarray, log_aligned: bool = True) -> np.ndarray:
+        """非線形層間転送を計算"""
         transfer = np.zeros(4)
         
         for func_def in self.transfer_functions:
@@ -183,192 +109,90 @@ class NonlinearInterlayerTransfer:
                 E_source, E_target, kappa_source, kappa_target
             )
             
-            # 基本係数のみ適用（dtはCore側で掛かる）
-            transfer[tgt_idx] += func_def.base_coefficient * transfer_amount
+            # 基本係数適用
+            base_transfer = func_def.base_coefficient * transfer_amount
+            
+            # Log-Alignment補償
+            if log_aligned and self.log_align_compensation:
+                base_transfer *= func_def.log_align_adaptation
+            
+            # 全体強度適用
+            base_transfer *= self.global_strength
+            
+            transfer[tgt_idx] += base_transfer
         
         return transfer
     
-    # ========================================
-    # 非線形転送関数群
-    # ========================================
+    def _saturating_suppression(self, E_source: float, E_target: float, kappa_source: float, kappa_target: float) -> float:
+        """飽和抑制関数"""
+        suppression_power = E_source * kappa_source * 0.8
+        resistance = 1.0 + E_target / 8.0
+        return suppression_power / resistance
     
-    def _saturating_suppression(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """飽和抑制関数
-        
-        E_sourceが高いほど抑制力が強いが、E_targetが極端に高いと
-        抑制が効かなくなる（飽和）
-        
-        例: 理念（UPPER）による本能（BASE）の抑制
-        """
-        # 抑制力: E_source に比例
-        suppression_power = E_source * kappa_source
-        
-        # 抵抗力: E_target が高いほど抑制が効きにくい
-        resistance = 1.0 + E_target / 10.0
-        
-        # 飽和抑制
-        effective_suppression = suppression_power / resistance
-        
-        return effective_suppression
-    
-    def _saturating_transfer(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """飽和転送関数
-        
-        E_targetが飽和すると、転送量が減少する
-        
-        例: 本能（BASE）→ 規範（CORE）の転送
-        """
-        # 転送力: E_source に比例
-        transfer_power = E_source
-        
-        # 飽和度: E_target が高いほど受け入れにくい
-        saturation_factor = 1.0 / (1.0 + E_target / 50.0)
-        
-        # 受容性: κ_target が高いほど受け入れやすい
-        receptivity = kappa_target / 2.0
-        
+    def _saturating_transfer(self, E_source: float, E_target: float, kappa_source: float, kappa_target: float) -> float:
+        """飽和転送関数"""
+        transfer_power = E_source * 0.9
+        saturation_factor = 1.0 / (1.0 + E_target / 40.0)
+        receptivity = kappa_target / 2.2
         return transfer_power * saturation_factor * receptivity
     
-    def _kappa_weighted_suppression(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """κ重み付き抑制関数
-        
-        κ_sourceが高いほど抑制力が強い
-        
-        例: 規範（CORE）による本能（BASE）の抑制
-        """
-        # κが高い = 構造が強固 = 抑制力が強い
-        suppression_strength = E_source * (kappa_source / 2.0)
-        
-        # 本能の強さによる抵抗
-        resistance = 1.0 + E_target / 20.0
-        
+    def _kappa_weighted_suppression(self, E_source: float, E_target: float, kappa_source: float, kappa_target: float) -> float:
+        """κ重み付き抑制関数"""
+        suppression_strength = E_source * (kappa_source / 1.8)
+        resistance = 1.0 + E_target / 15.0
         return suppression_strength / resistance
     
-    def _facilitative_transfer(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """促進転送関数
-        
-        両方のκが高いほど転送が促進される
-        
-        例: 規範（CORE）→ 理念（UPPER）の転送
-        """
-        # 両方の構造が強固なほど、転送が促進される
-        facilitation = (kappa_source * kappa_target) / 4.0
-        
-        return E_source * facilitation
-    
-    def _reinforcement_transfer(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """強化転送関数
-        
-        E_sourceが高いほど、E_targetを強化する
-        
-        例: 理念（UPPER）→ 規範（CORE）の強化
-        """
-        # 理念が強いほど、規範を強化する
-        reinforcement = E_source * kappa_source / 5.0
-        
-        # ただし、規範が既に強い場合は効果が弱まる
-        saturation = 1.0 / (1.0 + E_target / 30.0)
-        
-        return reinforcement * saturation
-    
-    def _fatigue_dependent_transfer(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """疲労依存転送関数
-        
-        E_target（身体疲労）が高いほど、転送量が増加
-        
-        例: 本能（BASE）→ 身体（PHYSICAL）
-        """
-        # 身体が疲労しているほど、本能的エネルギーが身体に流れ込む
-        fatigue_amplification = 1.0 + E_target / 10.0
-        
-        return E_source * fatigue_amplification / 10.0
-    
-    def _pain_transfer(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """痛覚転送関数
-        
-        身体的苦痛が本能的恐怖を引き起こす
-        
-        例: 身体（PHYSICAL）→ 本能（BASE）
-        """
-        # 身体的エネルギーが高い = 痛み/疲労
-        # これが本能的恐怖（生存への脅威）を引き起こす
-        pain_intensity = E_source
-        
-        # κ_physicalが低い = 身体が弱い = 痛みに敏感
-        pain_sensitivity = 2.0 / (kappa_source + 1.0)
-        
+    def _pain_transfer(self, E_source: float, E_target: float, kappa_source: float, kappa_target: float) -> float:
+        """痛覚転送関数"""
+        pain_intensity = E_source * 0.9
+        pain_sensitivity = 1.8 / (kappa_source + 1.0)
         return pain_intensity * pain_sensitivity
     
-    def _self_reflection(
-        self,
-        E_source: float,
-        E_target: float,
-        kappa_source: float,
-        kappa_target: float
-    ) -> float:
-        """自己反省関数
-        
-        理念エネルギーが高まると、自己抑制が働く
-        
-        例: 理念（UPPER）→ 理念（UPPER）の自己抑制
-        """
-        # 理念が高まりすぎると、自己批判・自己抑制が働く
-        # これは「独善」を防ぐメカニズム
-        
-        if E_source > 10.0:  # 閾値を超えた場合のみ
-            excess = E_source - 10.0
-            self_criticism = excess * kappa_source / 20.0
-            return self_criticism
-        else:
-            return 0.0
+    def set_global_strength(self, strength: float):
+        """全体的な転送強度を設定"""
+        self.global_strength = max(0.0, min(2.0, strength))
     
     def get_transfer_description(self) -> str:
         """転送関数の説明を取得"""
-        desc = "非線形層間転送関数:\n"
+        desc = "非線形層間転送関数（新コア対応版）:\n"
+        desc += f"  全体強度: {self.global_strength:.2f}\n"
+        desc += f"  Log-Alignment補償: {'有効' if self.log_align_compensation else '無効'}\n\n"
+        
         for i, func in enumerate(self.transfer_functions, 1):
             desc += f"  {i}. {func.source_layer.name} → {func.target_layer.name}\n"
             desc += f"     係数: {func.base_coefficient:+.3f}\n"
-            desc += f"     説明: {func.description}\n"
+            desc += f"     説明: {func.description}\n\n"
         return desc
+
+
+def create_default_nonlinear_transfer() -> NonlinearInterlayerTransfer:
+    """デフォルト非線形転送システムを作成"""
+    return NonlinearInterlayerTransfer()
+
+
+def demo_nonlinear_transfer():
+    """非線形転送システムのデモ"""
+    print("=== 非線形層間転送システムデモ（新コア対応版） ===")
+    
+    transfer_system = create_default_nonlinear_transfer()
+    
+    print(transfer_system.get_transfer_description())
+    
+    # テストデータ
+    E = np.array([50.0, 80.0, 40.0, 30.0])
+    kappa = np.array([0.9, 0.7, 0.6, 0.5])
+    
+    print("テスト入力:")
+    print(f"  E = {E}")
+    print(f"  κ = {kappa}")
+    
+    # 転送計算
+    transfer = transfer_system.compute_transfer(E, kappa, log_aligned=True)
+    
+    print(f"\n転送結果:")
+    print(f"  転送量 = {transfer}")
+    print(f"  転送後予想E = {E + transfer * 0.1}")
+
+
+if __name__ == "__main__":
+    demo_nonlinear_transfer()

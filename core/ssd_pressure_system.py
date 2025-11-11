@@ -1,13 +1,19 @@
 """
-SSD Multidimensional Pressure - 多次元意味圧モジュール
-=========================================================
+SSD Multidimensional Pressure - 多次元意味圧モジュール（新コア対応版）
+===============================================================================
 
 構造主観力学の「意味圧」を多次元的に計算し、四層構造別に集計するシステム。
+新しいLog-Alignment対応コアエンジンに統合。
 
 核心概念:
 - 意味圧は単一ではなく、複数の次元から構成される
 - 各次元は特定の構造層（PHYSICAL/BASE/CORE/UPPER）に作用する
 - 層ごとに集計された圧力が、その層の「未処理圧（E）」の生成源となる
+
+新コア統合:
+- Log-Alignment対応の圧力前処理
+- 神経変調システムとの連携
+- SS型（感覚過敏）対応の圧力感度調整
 
 理論的意義:
 ----------
@@ -22,450 +28,396 @@ SSD Multidimensional Pressure - 多次元意味圧モジュール
 
 3. 動かしにくさの再現
    - R値階層（PHYSICAL > BASE > CORE > UPPER）に基づく支配構造
-
-原典理論:
-https://github.com/HermannDegner/Structural-Subjectivity-Dynamics
-→ 意味圧とは？.md
 """
 
 import numpy as np
-from typing import Dict, Callable, Optional, List, Tuple
+from typing import Dict, Callable, Optional, List, Tuple, Union
 from dataclasses import dataclass, field
-from enum import Enum
-
-# 人間モジュールからHumanLayerをインポート
-try:
-    from ssd_human_module import HumanLayer
-except ImportError:
-    # スタンドアロン使用時のフォールバック
-    class HumanLayer(Enum):
-        PHYSICAL = 0
-        BASE = 1
-        CORE = 2
-        UPPER = 3
+from enum import Enum, auto
 
 
+# -------- 構造層定義 --------
+class StructuralLayer(Enum):
+    """構造層（四層モデル）"""
+    PHYSICAL = 0  # 物理層：生理・反射
+    BASE = 1      # 基層：本能・衝動・感情
+    CORE = 2      # 中核層：価値観・規範・アイデンティティ
+    UPPER = 3     # 上層：理念・理想・超越的価値
+
+
+# -------- 圧力次元定義 --------
 @dataclass
 class PressureDimension:
     """
-    意味圧の1つの次元
+    圧力次元定義
     
-    各次元は:
-    - 特定の構造層に作用する
-    - 独自の計算ロジックを持つ
-    - 重み付けされて集計される
+    意味圧の一つの構成要素。特定の現象・状況・感情などが
+    どの構造層にどの程度の圧力を生成するかを定義。
     """
-    name: str                           # 次元名（例: "rank_pressure"）
-    weight: float                       # 影響度の重み
-    calculator: Callable                # 圧力計算関数
-    layer: HumanLayer                   # 作用する構造層
-    enabled: bool = True                # 有効/無効フラグ
-    description: str = ""               # 次元の説明
-    history: List[float] = field(default_factory=list)  # 計算履歴
+    name: str                                    # 次元名
+    description: str = ""                        # 説明
+    target_layers: Dict[StructuralLayer, float] = field(default_factory=dict)  # 層別重み
+    base_intensity: float = 1.0                 # 基本強度
+    sensitivity_factor: float = 1.0             # 感度係数（SS型等で調整）
+    temporal_decay: float = 0.95                # 時間減衰率
+    
+    def __post_init__(self):
+        """デフォルト層重みの設定"""
+        if not self.target_layers:
+            # デフォルト：全層に均等
+            self.target_layers = {
+                StructuralLayer.PHYSICAL: 0.25,
+                StructuralLayer.BASE: 0.25,
+                StructuralLayer.CORE: 0.25,
+                StructuralLayer.UPPER: 0.25
+            }
 
 
-class MultiDimensionalPressure:
+# -------- 圧力計算エンジン --------
+@dataclass
+class PressureCalculationResult:
+    """圧力計算結果"""
+    layer_pressures: np.ndarray = field(default_factory=lambda: np.zeros(4))  # 層別圧力
+    total_pressure: float = 0.0                   # 総圧力
+    dominant_layer: StructuralLayer = StructuralLayer.BASE  # 支配的層
+    dimension_contributions: Dict[str, float] = field(default_factory=dict)  # 次元別寄与
+    
+    # Log-Alignment前処理結果
+    aligned_pressures: np.ndarray = field(default_factory=lambda: np.zeros(4))  # 整合済み圧力
+    pressure_magnitude: float = 0.0              # 圧力ノルム
+
+
+class MultidimensionalPressureEngine:
     """
-    多次元意味圧計算システム
+    多次元意味圧計算エンジン
     
-    使用例:
-    -------
-    ```python
-    pressure_system = MultiDimensionalPressure()
-    
-    # 次元登録
-    pressure_system.register_dimension(
-        name="rank_pressure",
-        calculator=lambda ctx: (ctx['total'] - ctx['rank']) / ctx['total'],
-        layer=HumanLayer.CORE,
-        weight=1.5,
-        description="順位による圧力"
-    )
-    
-    # 計算
-    context = {'rank': 5, 'total': 10}
-    pressures = pressure_system.calculate(context)
-    # → {HumanLayer.CORE: 0.5, HumanLayer.BASE: 0.0, ...}
-    ```
+    複数の圧力次元から層別意味圧を計算し、
+    新コアエンジンに適合した形で出力する。
     """
     
     def __init__(self):
         self.dimensions: Dict[str, PressureDimension] = {}
-        self.total_pressure_history: List[float] = []
-        self.layer_pressure_history: Dict[HumanLayer, List[float]] = {
-            layer: [] for layer in HumanLayer
-        }
+        self.dimension_values: Dict[str, float] = {}  # 各次元の現在値
+        self.history: List[PressureCalculationResult] = []
         
-    def register_dimension(
-        self, 
-        name: str, 
-        calculator: Callable[[dict], float],
-        layer: HumanLayer,
-        weight: float = 1.0,
-        description: str = "",
-        enabled: bool = True
-    ) -> None:
+        # Log-Alignment用パラメータ
+        self.log_base: float = np.e
+        self.eps_log: float = 1e-6
+        
+        # SS型連携用
+        self.ss_sensitivity_modifier: float = 1.0
+        
+    def add_dimension(self, dimension: PressureDimension):
+        """圧力次元を追加"""
+        self.dimensions[dimension.name] = dimension
+        self.dimension_values[dimension.name] = 0.0
+    
+    def set_dimension_value(self, name: str, value: float):
+        """次元値を設定"""
+        if name in self.dimensions:
+            self.dimension_values[name] = value
+        else:
+            raise ValueError(f"Unknown dimension: {name}")
+    
+    def update_dimension_values(self, values: Dict[str, float]):
+        """複数次元値を一括更新"""
+        for name, value in values.items():
+            self.set_dimension_value(name, value)
+    
+    def calculate_layer_pressures(self, 
+                                use_log_alignment: bool = True,
+                                alpha_t: float = 1.0) -> PressureCalculationResult:
         """
-        新しい圧力次元を登録
+        層別圧力を計算
         
         Args:
-            name: 次元の一意な名前
-            calculator: context辞書を受け取り、圧力値[0,1]を返す関数
-            layer: この圧力が作用する構造層
-            weight: 重み（影響度）
-            description: 次元の説明文
-            enabled: 有効/無効フラグ
+            use_log_alignment: Log-Alignment前処理を使用するか
+            alpha_t: Log-Alignment適応ゲイン
         """
-        dimension = PressureDimension(
-            name=name,
-            weight=weight,
-            calculator=calculator,
-            layer=layer,
-            enabled=enabled,
-            description=description
-        )
-        self.dimensions[name] = dimension
+        result = PressureCalculationResult()
         
-    def remove_dimension(self, name: str) -> None:
-        """圧力次元を削除"""
-        if name in self.dimensions:
-            del self.dimensions[name]
-    
-    def set_weight(self, name: str, weight: float) -> None:
-        """次元の重みを変更"""
-        if name in self.dimensions:
-            self.dimensions[name].weight = weight
-    
-    def enable_dimension(self, name: str, enabled: bool = True) -> None:
-        """次元の有効/無効を切り替え"""
-        if name in self.dimensions:
-            self.dimensions[name].enabled = enabled
-    
-    def calculate(self, context: dict) -> Dict[HumanLayer, float]:
-        """
-        多次元意味圧を四層構造別に集計して計算
+        # 1) 各次元の寄与を計算
+        layer_contributions = {layer: 0.0 for layer in StructuralLayer}
         
-        Args:
-            context: 計算に必要なコンテキスト情報の辞書
-        
-        Returns:
-            各層ごとに重み付け平均された圧力値の辞書
-            例: {HumanLayer.BASE: 0.8, HumanLayer.CORE: 0.3, ...}
-        """
-        # 各層ごとに圧力の合計と重みの合計を格納
-        layer_pressures: Dict[HumanLayer, float] = {layer: 0.0 for layer in HumanLayer}
-        layer_weights: Dict[HumanLayer, float] = {layer: 0.0 for layer in HumanLayer}
-        
-        for name, dim in self.dimensions.items():
-            if not dim.enabled:
+        for dim_name, dimension in self.dimensions.items():
+            if dim_name not in self.dimension_values:
                 continue
                 
-            try:
-                # 各次元の圧力を計算
-                pressure_value = dim.calculator(context)
-                
-                # 履歴に記録
-                dim.history.append(pressure_value)
-                
-                # 該当する層に、重み付けされた圧力と重みを加算
-                layer_pressures[dim.layer] += dim.weight * pressure_value
-                layer_weights[dim.layer] += dim.weight
-                
-            except Exception as e:
-                print(f"Warning: Failed to calculate pressure for {name}: {e}")
-                continue
-        
-        # 各層の最終的な圧力（重み付き平均）を計算
-        final_pressures: Dict[HumanLayer, float] = {}
-        for layer in HumanLayer:
-            total_w = layer_weights[layer]
-            if total_w > 0:
-                final_pressures[layer] = layer_pressures[layer] / total_w
-            else:
-                final_pressures[layer] = 0.0
-        
-        # 層ごとの履歴に記録
-        for layer in HumanLayer:
-            self.layer_pressure_history[layer].append(final_pressures[layer])
-        
-        # 総合圧（参考値）
-        total_pressure_all = sum(final_pressures.values())
-        self.total_pressure_history.append(total_pressure_all)
-        
-        return final_pressures
-    
-    def get_dimension_info(self) -> Dict[str, dict]:
-        """全次元の情報を取得"""
-        info = {}
-        for name, dim in self.dimensions.items():
-            info[name] = {
-                'weight': dim.weight,
-                'layer': dim.layer.name,
-                'enabled': dim.enabled,
-                'description': dim.description,
-                'last_value': dim.history[-1] if dim.history else None,
-                'history_length': len(dim.history)
-            }
-        return info
-    
-    def get_statistics(self) -> dict:
-        """統計情報を取得（層別統計を含む）"""
-        layer_stats = {}
-        for layer in HumanLayer:
-            dims_in_layer = [d for d in self.dimensions.values() if d.layer == layer and d.enabled]
-            layer_stats[layer.name] = {
-                'num_dimensions': len(dims_in_layer),
-                'total_weight': sum(d.weight for d in dims_in_layer),
-                'last_pressure': self.layer_pressure_history[layer][-1] if self.layer_pressure_history[layer] else None
-            }
-        
-        return {
-            'num_dimensions': len(self.dimensions),
-            'num_enabled': sum(1 for d in self.dimensions.values() if d.enabled),
-            'total_weight': sum(d.weight for d in self.dimensions.values() if d.enabled),
-            'dimension_names': list(self.dimensions.keys()),
-            'last_total_pressure': self.total_pressure_history[-1] if self.total_pressure_history else None,
-            'layer_stats': layer_stats
-        }
-    
-    def get_layer_conflict_index(self) -> Dict[str, float]:
-        """
-        層間葛藤指数を計算
-        
-        理論的意義:
-        - BASE層とUPPER層の圧力が同時に高い場合、強い内的葛藤
-        - 例: BASE高（危険）× UPPER高（理念）→「逃げるか、理念を貫くか」
-        
-        Returns:
-            各層ペアの葛藤指数
-            例: {'BASE-UPPER': 0.64, 'BASE-CORE': 0.48, ...}
-        """
-        if not self.layer_pressure_history[HumanLayer.BASE]:
-            return {}
-        
-        # 最新の各層圧力を取得
-        current_pressures = {
-            layer: self.layer_pressure_history[layer][-1] 
-            for layer in HumanLayer
-        }
-        
-        conflicts = {}
-        
-        # BASE-UPPER葛藤（本能 vs 理念）
-        conflicts['BASE-UPPER'] = current_pressures[HumanLayer.BASE] * current_pressures[HumanLayer.UPPER]
-        
-        # BASE-CORE葛藤（本能 vs 規範）
-        conflicts['BASE-CORE'] = current_pressures[HumanLayer.BASE] * current_pressures[HumanLayer.CORE]
-        
-        # CORE-UPPER葛藤（規範 vs 理念）
-        conflicts['CORE-UPPER'] = current_pressures[HumanLayer.CORE] * current_pressures[HumanLayer.UPPER]
-        
-        # PHYSICAL圧が高い場合は全ての葛藤が無意味（物理制約が支配的）
-        physical_suppression = 1.0 - current_pressures[HumanLayer.PHYSICAL]
-        conflicts = {k: v * physical_suppression for k, v in conflicts.items()}
-        
-        return conflicts
-    
-    def get_dominant_layer(self) -> Tuple[HumanLayer, float]:
-        """
-        現在最も圧力が高い層を返す
-        
-        Returns:
-            (layer, pressure): 最高圧力の層とその値
-        """
-        if not self.layer_pressure_history[HumanLayer.BASE]:
-            return (HumanLayer.BASE, 0.0)
-        
-        current_pressures = {
-            layer: self.layer_pressure_history[layer][-1] 
-            for layer in HumanLayer
-        }
-        
-        dominant_layer = max(current_pressures.items(), key=lambda x: x[1])
-        return dominant_layer
-    
-    def should_trigger_leap(self, threshold: float = 0.7) -> Optional[HumanLayer]:
-        """
-        跳躍（Leap）をトリガーすべき層を判定
-        
-        理論的意義:
-        - 各層には「動かしにくさ」(R値)がある
-        - 複数層が閾値を超えた場合、R値が最大の層が支配的
-        
-        Args:
-            threshold: 跳躍トリガーの閾値（デフォルト0.7）
-        
-        Returns:
-            跳躍すべき層（複数超過時はR値最大の層）
-        """
-        if not self.layer_pressure_history[HumanLayer.BASE]:
-            return None
-        
-        current_pressures = {
-            layer: self.layer_pressure_history[layer][-1] 
-            for layer in HumanLayer
-        }
-        
-        # R値の定義（動かしにくさ）
-        R_values = {
-            HumanLayer.PHYSICAL: 1000.0,
-            HumanLayer.BASE: 100.0,
-            HumanLayer.CORE: 10.0,
-            HumanLayer.UPPER: 1.0
-        }
-        
-        # 閾値を超えた層を抽出
-        triggered_layers = [
-            layer for layer, pressure in current_pressures.items() 
-            if pressure > threshold
-        ]
-        
-        if not triggered_layers:
-            return None
-        
-        # 最もR値が高い層を返す（最も強い跳躍）
-        dominant_layer = max(triggered_layers, key=lambda l: R_values[l])
-        return dominant_layer
-    
-    def to_human_pressure(self):
-        """
-        HumanPressure形式に変換
-        
-        Returns:
-            HumanPressure インスタンス（ssd_human_module使用時）
-        """
-        try:
-            from ssd_human_module import HumanPressure
+            dim_value = self.dimension_values[dim_name]
             
-            if not self.layer_pressure_history[HumanLayer.BASE]:
-                return HumanPressure()
+            # SS型感度調整
+            adjusted_value = dim_value * dimension.sensitivity_factor * self.ss_sensitivity_modifier
             
-            current_pressures = {
-                layer: self.layer_pressure_history[layer][-1] 
-                for layer in HumanLayer
-            }
-            
-            return HumanPressure(
-                physical=current_pressures[HumanLayer.PHYSICAL],
-                base=current_pressures[HumanLayer.BASE],
-                core=current_pressures[HumanLayer.CORE],
-                upper=current_pressures[HumanLayer.UPPER]
+            # 各層への寄与計算
+            for layer, weight in dimension.target_layers.items():
+                contribution = adjusted_value * weight * dimension.base_intensity
+                layer_contributions[layer] += contribution
+                
+            # 次元別寄与記録
+            result.dimension_contributions[dim_name] = adjusted_value
+        
+        # 2) 層別圧力配列に変換
+        result.layer_pressures = np.array([
+            layer_contributions[StructuralLayer.PHYSICAL],
+            layer_contributions[StructuralLayer.BASE],
+            layer_contributions[StructuralLayer.CORE], 
+            layer_contributions[StructuralLayer.UPPER]
+        ])
+        
+        # 3) 総圧力・支配層計算
+        result.total_pressure = np.sum(result.layer_pressures)
+        if result.total_pressure > self.eps_log:
+            dominant_idx = np.argmax(result.layer_pressures)
+            result.dominant_layer = StructuralLayer(dominant_idx)
+        
+        # 4) Log-Alignment前処理
+        if use_log_alignment:
+            result.aligned_pressures = self._apply_log_alignment(
+                result.layer_pressures, alpha_t
             )
-        except ImportError:
-            raise RuntimeError("ssd_human_module not available")
-
-
-# ============================================================================
-# プリセット圧力計算関数
-# ============================================================================
-
-def rank_pressure_calculator(context: dict) -> float:
-    """
-    順位圧力の計算（CORE層に作用）
+            result.pressure_magnitude = np.linalg.norm(result.aligned_pressures)
+        else:
+            result.aligned_pressures = result.layer_pressures.copy()
+            result.pressure_magnitude = np.linalg.norm(result.layer_pressures)
+        
+        # 5) 履歴記録
+        self.history.append(result)
+        if len(self.history) > 1000:  # 履歴上限
+            self.history.pop(0)
+            
+        return result
     
-    Context Keys:
-    - rank: int - 現在の順位（1が最高）
-    - total_players: int - 総プレイヤー数
-    """
-    rank = context.get('rank', 1)
-    total = context.get('total_players', 1)
-    return (total - rank) / total
-
-
-def score_pressure_calculator(context: dict) -> float:
-    """
-    スコア差圧力の計算（CORE層に作用）
+    def _apply_log_alignment(self, pressures: np.ndarray, alpha_t: float) -> np.ndarray:
+        """Log-Alignment前処理を適用"""
+        aligned = np.zeros_like(pressures)
+        
+        for i, p in enumerate(pressures):
+            if abs(p) < self.eps_log:
+                aligned[i] = 0.0
+            else:
+                # p̂ = sign(p) * log(1 + α_t * |p|) / log(b)
+                sign_p = np.sign(p)
+                abs_p = abs(p)
+                log_term = np.log(1.0 + alpha_t * abs_p) / np.log(self.log_base)
+                aligned[i] = sign_p * log_term
+                
+        return aligned
     
-    Context Keys:
-    - score: float - 現在のスコア
-    - target_score: float - 目標スコア
-    - threshold: float - 正規化用閾値
-    """
-    score = context.get('score', 0.0)
-    target = context.get('target_score', 100.0)
-    threshold = context.get('threshold', 100.0)
+    def get_pressure_for_core_engine(self, 
+                                   use_log_alignment: bool = True,
+                                   alpha_t: float = 1.0) -> np.ndarray:
+        """
+        新コアエンジン用の圧力配列を取得
+        
+        Returns:
+            4層分の圧力配列（Log-Alignment済み）
+        """
+        result = self.calculate_layer_pressures(use_log_alignment, alpha_t)
+        return result.aligned_pressures
     
-    gap = max(0, target - score)
-    return min(1.0, gap / threshold)
+    def apply_ss_sensitivity(self, ss_level: float, ss_profile_context_dependency: float = 0.7):
+        """SS型（感覚過敏）感度調整を適用"""
+        # 基本感度倍率
+        base_multiplier = 1.0 + ss_level * 0.5
+        
+        # 文脈依存度による微調整
+        context_modifier = 1.0 + ss_profile_context_dependency * 0.3
+        
+        self.ss_sensitivity_modifier = base_multiplier * context_modifier
+        
+        # 各次元の感度も個別調整
+        for dimension in self.dimensions.values():
+            if ss_level > 0.5:
+                dimension.sensitivity_factor *= (1.0 + ss_level * 0.2)
 
 
-def time_pressure_calculator(context: dict) -> float:
-    """
-    時間圧力の計算（UPPER層に作用）
+# -------- プリセット圧力次元 --------
+def create_kaiji_pressure_dimensions() -> Dict[str, PressureDimension]:
+    """カイジ借金地獄用の圧力次元セット"""
+    return {
+        "debt_pressure": PressureDimension(
+            name="debt_pressure",
+            description="借金・金銭的困窮による圧力",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.4,  # 生存脅威
+                StructuralLayer.BASE: 0.4,      # 不安・恐怖
+                StructuralLayer.CORE: 0.1,      # 価値観への脅威
+                StructuralLayer.UPPER: 0.1      # 理想への影響
+            },
+            base_intensity=1.2
+        ),
+        
+        "gambling_temptation": PressureDimension(
+            name="gambling_temptation",
+            description="一発逆転への誘惑",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.1,
+                StructuralLayer.BASE: 0.6,      # 欲望・衝動
+                StructuralLayer.CORE: 0.2,      # 希望・期待
+                StructuralLayer.UPPER: 0.1
+            },
+            base_intensity=1.0
+        ),
+        
+        "social_shame": PressureDimension(
+            name="social_shame",
+            description="社会的恥辱・体面の失墜",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.1,
+                StructuralLayer.BASE: 0.2,
+                StructuralLayer.CORE: 0.5,      # アイデンティティ脅威
+                StructuralLayer.UPPER: 0.2      # 理想からの乖離
+            },
+            base_intensity=0.8
+        ),
+        
+        "time_pressure": PressureDimension(
+            name="time_pressure", 
+            description="時間切迫・決断強要",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.3,  # ストレス反応
+                StructuralLayer.BASE: 0.4,      # 焦燥感
+                StructuralLayer.CORE: 0.2,      # 判断力への圧迫
+                StructuralLayer.UPPER: 0.1
+            },
+            base_intensity=1.1,
+            temporal_decay=0.85  # 急速減衰
+        )
+    }
+
+
+def create_ss_type_pressure_dimensions() -> Dict[str, PressureDimension]:
+    """SS型（感覚過敏）用の圧力次元セット"""
+    return {
+        "sensory_overload": PressureDimension(
+            name="sensory_overload",
+            description="感覚過負荷・刺激過多",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.6,  # 生理的負荷
+                StructuralLayer.BASE: 0.3,      # 不快感・疲労
+                StructuralLayer.CORE: 0.1,
+                StructuralLayer.UPPER: 0.0
+            },
+            base_intensity=1.5,
+            sensitivity_factor=2.0  # SS型で高感度
+        ),
+        
+        "social_context_pressure": PressureDimension(
+            name="social_context_pressure",
+            description="場の空気・文脈読み取り負荷",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.1,
+                StructuralLayer.BASE: 0.2,
+                StructuralLayer.CORE: 0.5,      # 認知負荷
+                StructuralLayer.UPPER: 0.2      # 適応努力
+            },
+            base_intensity=1.0,
+            sensitivity_factor=1.8  # SS型で高負荷
+        ),
+        
+        "perfectionism_pressure": PressureDimension(
+            name="perfectionism_pressure",
+            description="完璧主義・細部へのこだわり",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.1,
+                StructuralLayer.BASE: 0.2,
+                StructuralLayer.CORE: 0.4,      # 価値基準
+                StructuralLayer.UPPER: 0.3      # 理想追求
+            },
+            base_intensity=0.9,
+            sensitivity_factor=1.6
+        ),
+        
+        "threat_hypervigilance": PressureDimension(
+            name="threat_hypervigilance",
+            description="脅威過敏・警戒状態維持",
+            target_layers={
+                StructuralLayer.PHYSICAL: 0.4,  # 警戒反応
+                StructuralLayer.BASE: 0.5,      # 不安・恐怖
+                StructuralLayer.CORE: 0.1,
+                StructuralLayer.UPPER: 0.0
+            },
+            base_intensity=1.3,
+            sensitivity_factor=2.2  # SS型で極めて高感度
+        )
+    }
+
+
+# -------- 統合ヘルパー関数 --------
+def create_pressure_engine_for_scenario(scenario: str = "kaiji") -> MultidimensionalPressureEngine:
+    """シナリオ別圧力エンジンを作成"""
+    engine = MultidimensionalPressureEngine()
     
-    Context Keys:
-    - elapsed: float - 経過時間
-    - total: float - 総時間
-    """
-    elapsed = context.get('elapsed', 0.0)
-    total = context.get('total', 1.0)
-    return elapsed / total
-
-
-def survival_pressure_calculator(context: dict) -> float:
-    """
-    生存圧力の計算（BASE層に作用）
+    if scenario == "kaiji":
+        dimensions = create_kaiji_pressure_dimensions()
+    elif scenario == "ss_type":
+        dimensions = create_ss_type_pressure_dimensions()
+    elif scenario == "combined":
+        # カイジ + SS型統合
+        dimensions = {}
+        dimensions.update(create_kaiji_pressure_dimensions())
+        dimensions.update(create_ss_type_pressure_dimensions())
+    else:
+        raise ValueError(f"Unknown scenario: {scenario}")
     
-    Context Keys:
-    - hp: float - 現在HP
-    - max_hp: float - 最大HP
-    """
-    hp = context.get('hp', 100.0)
-    max_hp = context.get('max_hp', 100.0)
-    return 1.0 - (hp / max_hp)
-
-
-def resource_pressure_calculator(context: dict) -> float:
-    """
-    リソース圧力の計算（CORE層に作用）
+    for dimension in dimensions.values():
+        engine.add_dimension(dimension)
     
-    Context Keys:
-    - resource: float - 現在のリソース量
-    - required: float - 必要なリソース量
-    """
-    resource = context.get('resource', 0.0)
-    required = context.get('required', 1.0)
-    return max(0.0, min(1.0, (required - resource) / required))
+    return engine
 
 
-def social_pressure_calculator(context: dict) -> float:
-    """
-    社会的圧力の計算（CORE層に作用）
+def demo_pressure_system():
+    """圧力システムのデモンストレーション"""
+    print("=" * 80)
+    print("多次元意味圧システムデモ（新コア対応版）")
+    print("=" * 80)
     
-    Context Keys:
-    - suspicion: float - 疑惑レベル [0, 1]
-    - votes: int - 投票された数
-    - total_votes: int - 総投票数
-    """
-    suspicion = context.get('suspicion', 0.0)
-    votes = context.get('votes', 0)
-    total_votes = context.get('total_votes', 1)
+    # カイジシナリオエンジン
+    kaiji_engine = create_pressure_engine_for_scenario("kaiji")
     
-    vote_pressure = votes / total_votes if total_votes > 0 else 0.0
-    return (suspicion + vote_pressure) / 2.0
-
-
-def physical_fatigue_calculator(context: dict) -> float:
-    """
-    物理的疲労の計算（PHYSICAL層に作用）
+    print("\nカイジ借金地獄シナリオ:")
+    print("-" * 50)
     
-    Context Keys:
-    - fatigue: float - 疲労度 [0, 1]
-    - damage: float - ダメージ [0, 1]
-    """
-    fatigue = context.get('fatigue', 0.0)
-    damage = context.get('damage', 0.0)
-    return max(fatigue, damage)
-
-
-def ideological_pressure_calculator(context: dict) -> float:
-    """
-    イデオロギー圧力の計算（UPPER層に作用）
+    # 段階的圧力変化
+    stages = [
+        ("平常時", {"debt_pressure": 20, "gambling_temptation": 10, "social_shame": 5, "time_pressure": 5}),
+        ("借金発覚", {"debt_pressure": 60, "gambling_temptation": 30, "social_shame": 40, "time_pressure": 20}),
+        ("ギャンブル中", {"debt_pressure": 80, "gambling_temptation": 90, "social_shame": 60, "time_pressure": 70}),
+        ("破産寸前", {"debt_pressure": 100, "gambling_temptation": 95, "social_shame": 90, "time_pressure": 95})
+    ]
     
-    Context Keys:
-    - belief_conflict: float - 信念の衝突度 [0, 1]
-    - moral_dilemma: float - 道徳的ジレンマ [0, 1]
-    """
-    conflict = context.get('belief_conflict', 0.0)
-    dilemma = context.get('moral_dilemma', 0.0)
-    return (conflict + dilemma) / 2.0
+    for stage_name, pressures in stages:
+        print(f"\n[{stage_name}]:")
+        kaiji_engine.update_dimension_values(pressures)
+        result = kaiji_engine.calculate_layer_pressures()
+        
+        print(f"  層別圧力: P={result.layer_pressures[0]:.1f}, B={result.layer_pressures[1]:.1f}, "
+              f"C={result.layer_pressures[2]:.1f}, U={result.layer_pressures[3]:.1f}")
+        print(f"  支配層: {result.dominant_layer.name}, 総圧力: {result.total_pressure:.1f}")
+        print(f"  Log整合後: {result.aligned_pressures}")
+    
+    # SS型統合テスト
+    print("\nSS型（感覚過敏）統合テスト:")
+    print("-" * 50)
+    
+    ss_engine = create_pressure_engine_for_scenario("ss_type")
+    ss_engine.apply_ss_sensitivity(ss_level=0.8, ss_profile_context_dependency=0.9)
+    
+    ss_pressures = {
+        "sensory_overload": 40,
+        "social_context_pressure": 60,
+        "perfectionism_pressure": 50,
+        "threat_hypervigilance": 70
+    }
+    
+    ss_engine.update_dimension_values(ss_pressures)
+    ss_result = ss_engine.calculate_layer_pressures()
+    
+    print(f"  SS型圧力分布: P={ss_result.layer_pressures[0]:.1f}, B={ss_result.layer_pressures[1]:.1f}, "
+          f"C={ss_result.layer_pressures[2]:.1f}, U={ss_result.layer_pressures[3]:.1f}")
+    print(f"  支配層: {ss_result.dominant_layer.name}")
+    print(f"  新コア用配列: {ss_engine.get_pressure_for_core_engine()}")
+
+
+if __name__ == "__main__":
+    demo_pressure_system()

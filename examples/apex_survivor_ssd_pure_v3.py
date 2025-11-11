@@ -21,13 +21,11 @@ from pathlib import Path
 parent_path = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_path))
 
-# coreモジュールのパス追加
-core_path = parent_path / 'core'
-sys.path.insert(0, str(core_path))
-
 import random
 import numpy as np
-from ssd_human_module import HumanAgent, HumanPressure, HumanLayer
+
+# 現在のパッケージ構造に対応したインポート
+from core import HumanAgent, HumanParams, HumanPressure, HumanLayer
 
 
 # ===== ゲーム設定 =====
@@ -90,7 +88,8 @@ class ApexPlayerV3:
         self.elimination_round = None  # 脱落したラウンド番号
         
         # HumanAgent（Pure Theoretical版の核心）
-        self.agent = HumanAgent()
+        params = HumanParams()
+        self.agent = HumanAgent(params=params, agent_id=f"Apex_{self.name}", enable_nonlinear_transfer=True)
         self._initialize_personality()
     
     def _initialize_personality(self):
@@ -102,33 +101,54 @@ class ApexPlayerV3:
         - UPPER: 戦略的思考（状況分析） ← 後天的、学習で成長
         
         【重要】死の恐怖は根源的意味圧
-        - 生存本能（BASE κ）は生まれつき刻まれている
-        - 進化的に確立された価値 → 初期値10-15
-        - これにより、HP=1での生存圧が確実に優勢になる
+        - 「1位以外は死亡」= 究極の生存ゲーム
+        - 生存本能（BASE κ）は進化で刻まれた絶対値
+        - 死の恐怖 → 初期値50-100（生命の重さ）
+        - これにより、生存圧が確実に支配的になる
         """
         if self.personality == 'cautious':
-            # 慎重派: 生存本能が特に強い
-            self.agent.state.kappa[HumanLayer.BASE.value] = 15.0  # 根源的生存本能（進化的刻印）
-            self.agent.state.kappa[HumanLayer.CORE.value] = 0.3   # 勝利欲求は控えめ
-            self.agent.state.kappa[HumanLayer.UPPER.value] = 0.4  # 戦略性も低め
+            # 慎重派: 死の恐怖が極限まで強い
+            self.agent.state.kappa[HumanLayer.BASE.value] = 100.0  # 意味圧調整に合わせて削減
+            self.agent.state.kappa[HumanLayer.CORE.value] = 0.3    # 勝利欲求は死の前では無力
+            self.agent.state.kappa[HumanLayer.UPPER.value] = 10.0  # 戦略的思考を大幅強化
         elif self.personality == 'aggressive':
-            # 攻撃派: 生存本能は標準、勝利欲求が強い
-            self.agent.state.kappa[HumanLayer.BASE.value] = 10.0  # 根源的生存本能（標準）
-            self.agent.state.kappa[HumanLayer.CORE.value] = 0.9   # 強い勝利欲求
-            self.agent.state.kappa[HumanLayer.UPPER.value] = 0.6  # 中程度の戦略性
+            # 攻撃派: 死の恐怖は標準、だが勝利への執着も強い
+            self.agent.state.kappa[HumanLayer.BASE.value] = 150.0  # 高閾値だが現実的レベルに
+            self.agent.state.kappa[HumanLayer.CORE.value] = 2.0    # 勝利への執着（死の恐怖に挑む）
+            self.agent.state.kappa[HumanLayer.UPPER.value] = 15.0  # 戦略的思考を大幅強化
         else:  # balanced
-            # バランス派: 生存本能は標準、戦略性重視
-            self.agent.state.kappa[HumanLayer.BASE.value] = 12.0  # 根源的生存本能（やや強め）
+            # バランス派: 死の恐怖と戦略のバランス
+            self.agent.state.kappa[HumanLayer.BASE.value] = 120.0  # 中間値に調整
             self.agent.state.kappa[HumanLayer.CORE.value] = 0.5   # 標準的勝利欲求
-            self.agent.state.kappa[HumanLayer.UPPER.value] = 0.8  # 強い戦略性
+            self.agent.state.kappa[HumanLayer.UPPER.value] = 12.0  # 戦略的思考を大幅強化
+        
+        # 【初期熱設定】E値の初期化（κに対する適切な初期値）
+        # 生存ゲーム開始時点での基本的な心理状態を反映
+        if self.personality == 'cautious':
+            # 慎重派: 初期から高い生存警戒心
+            self.agent.state.E[HumanLayer.BASE.value] = 50.0     # 基本的生存警戒（削減）
+            self.agent.state.E[HumanLayer.CORE.value] = 0.1      # 控えめな勝利欲求
+            self.agent.state.E[HumanLayer.UPPER.value] = 3.0     # 戦略的思考の初期熱
+        elif self.personality == 'aggressive':
+            # 攻撃派: 初期から勝利への熱意
+            self.agent.state.E[HumanLayer.BASE.value] = 30.0     # 標準的生存意識（削減）
+            self.agent.state.E[HumanLayer.CORE.value] = 1.0      # 強い勝利欲求
+            self.agent.state.E[HumanLayer.UPPER.value] = 5.0     # 戦略的思考の初期熱
+        else:  # balanced
+            # バランス派: バランス取れた初期状態
+            self.agent.state.E[HumanLayer.BASE.value] = 40.0     # 中程度の生存意識（削減）
+            self.agent.state.E[HumanLayer.CORE.value] = 0.3      # 適度な勝利欲求
+            self.agent.state.E[HumanLayer.UPPER.value] = 4.0     # 戦略的思考の初期熱
     
     def on_round_start(self):
         """ラウンド開始（E自然減衰）"""
-        if self.is_alive:
-            self.agent.step(HumanPressure(), dt=1.0)
+        # 注意: 空のHumanPressure()はEをリセットしてしまうため
+        # 自然減衰は内部的に行い、ここでは何もしない
+        pass
     
     def make_choice(self, current_rank: int, leader_score: int, round_num: int, 
-                    total_rounds: int, alive_count: int, current_set: int, total_sets: int) -> int:
+                    total_rounds: int, alive_count: int, current_set: int, total_sets: int,
+                    other_players_history: dict = None) -> int:
         """選択決定（SSD理論完全整合版）
         
         【理論的プロセス】
@@ -147,30 +167,33 @@ class ApexPlayerV3:
         pressure = HumanPressure()
         
         # 【BASE層: 生存圧力（非線形）】
-        # HP減少による恐怖は指数関数的に増大
-        # HP=1: 次のクラッシュ=即死 → 圧倒的恐怖
-        # HP=2: 2回の猶予 → まだ余裕
-        # HP=3: 3回の猶予 → 通常レベル
+        # HP減少による死の恐怖は指数関数的に増大
+        # 「1位以外は死亡」＋「HP=0で即死」= 二重の死の恐怖
         if self.hp == 1:
-            # 【HP=1: 即死圏】次のクラッシュ=ゲームオーバー
-            # 「優勝以外死」より「今死ぬ」方が強烈な恐怖
-            pressure.base += 400.0  # 即死恐怖（×8倍増）← ×2倍に強化
-            pressure.upper += 50.0  # 「絶対にリスク回避」戦略
-            pressure.core -= 150.0  # 勝利欲求を完全抑制（×3倍増）
+            # 【HP=1: 死の瀬戸際】次のクラッシュ=即死 → 最大限の慎重さが必要
+            pressure.base += 800.0   # 即死恐怖（調整済み）
+            pressure.upper += 500.0  # 「冷静に計算せよ」（大幅強化）
+            pressure.core -= 300.0   # 勝利欲求を抑制
         elif self.hp == 2:
-            # 【HP=2: 警戒圏】あと1回クラッシュでHP=1（即死圏）
-            pressure.base += 80.0  # 強い警戒
-            pressure.upper += 20.0  # リスク計算
-            pressure.core -= 30.0  # 勝利欲求を軽く抑制
+            # 【HP=2: 死の予兆】あと1回で死の瀬戸際
+            pressure.base += 400.0   # 死への接近恐怖
+            pressure.upper += 300.0  # 戦略的計算要求（大幅強化）
+            pressure.core -= 150.0   # 勝利欲求を抑制
         elif self.hp == 3:
-            # 【HP=3: 通常圏】初期値、まだ余裕
-            pressure.base += 20.0  # 軽い警戒
-        # HP=4-5: 圧力なし（十分な余裕）
+            # 【HP=3: 死の影】まだ余裕だが死が見え始める
+            pressure.base += 150.0   # 中程度の警戒
+            pressure.upper += 150.0  # リスク計算開始（大幅強化）
+            pressure.core -= 50.0    # 勝利欲求を軽く抑制
+        elif self.hp == 4:
+            # 【HP=4: 警戒】死はまだ遠いが注意
+            pressure.base += 50.0    # 軽い警戒
+            pressure.upper += 80.0   # 基本的な戦略思考
+        # HP=5: 圧力なし（完全な余裕）
         
-        # 【CORE層: 勝利圧力】
-        # 「1位以外全員死亡」という極限ルールによる勝利要求
+        # 【CORE層: 死の恐怖による勝利圧力】
+        # 「1位以外全員死亡」= 2-7位は全員が死刑囚状態
         if current_rank > 1:
-            # 【2-7位: 「このまま終わったら自分は死ぬ」絶対的恐怖】
+            # 【2-7位: 「このまま終わったら確実に死ぬ」= 究極の生存圧】
             score_gap = leader_score - self.score
             remaining_rounds = total_rounds - round_num
             remaining_sets = total_sets - current_set + 1
@@ -183,48 +206,51 @@ class ApexPlayerV3:
             max_set_bonus = GameConfig.SET_RANK_BONUS.get(1, 0)
             max_gain = max_gain_rounds + max_set_bonus
             
-            # 【セットボーナスの価値を意味圧化】
-            # 残りセット数 × 1位ボーナス50pts = 獲得可能なボーナス総額
-            potential_set_bonuses = remaining_sets * max_set_bonus
-            # ボーナスの価値 = 総額の1/3を意味圧に変換（50pt→16.7圧）
-            bonus_value_pressure = potential_set_bonuses / 3.0
+            # 【死の恐怖による意味圧（生命の重さ）】
+            # 意味圧を大幅調整して全滅を回避
+            death_fear_base = 100.0 * remaining_sets  # 1000→100に削減
             
-            # スコア差が大きいほど絶望的（差×3の意味圧 + ボーナス価値）
-            gap_pressure = min(400.0, score_gap * 3.0 - bonus_value_pressure)
+            # スコア差による死の切迫感（差が大きいほど死に近い）
+            death_imminence = min(200.0, score_gap * 2.0)  # 2000→200、係数20→2に削減
             
-            # 逆転可能性判定（セットボーナス込み）
+            # 総合的な死の恐怖圧力
+            gap_pressure = death_fear_base + death_imminence
+            
+            # 死の回避可能性判定
             if score_gap <= max_gain:
-                # 逆転可能 → 「勝つために全力で攻めなければ死ぬ」
+                # 死の回避可能 → 「勝たなければ死ぬ」= 生存をかけた必死の戦い
                 urgency = score_gap / (max_gain + 1)
                 
-                # 【HP1ボーナスの意味圧化】
-                # HP=1時は+30%獲得可能 → ハイリスク・ハイリターンの価値
-                # この「命がけで逆転可能」という希望を意味圧に変換
-                hp1_hope_pressure = 0.0
+                # 【HP1の命がけボーナス意味圧】
+                # HP=1 = 既に死の瀬戸際 → +30%は最後の希望
+                hp1_death_defiance = 0.0
                 if self.hp == 1:
-                    # 30%ボーナス = 残りラウンド数 × 30pts相当の希望
-                    hp1_hope_value = remaining_rounds * 30
-                    hp1_hope_pressure = hp1_hope_value / 2.0  # 希望を意味圧に変換
+                    # 死の瀬戸際での最後の希望 = 巨大な意味圧
+                    hp1_last_hope = remaining_rounds * 100.0  # 1ラウンド100圧の希望
+                    hp1_death_defiance = hp1_last_hope
                 
                 if current_rank <= 3:
-                    # 2-3位: まだ逆転可能性がある
-                    pressure.core += 200.0 + gap_pressure + hp1_hope_pressure  # 「勝たなければ死」
-                    pressure.upper += 100.0  # 戦略的判断「どう逆転するか」
+                    # 2-3位: 死が目前、だが希望あり → 戦略的計算が重要
+                    pressure.core += 100.0 + gap_pressure * 0.5 + hp1_death_defiance * 0.3  # 大幅削減
+                    pressure.upper += 200.0  # 戦略的思考を大幅強化
+                    pressure.base += 80.0    # 800→80に削減
                 else:
-                    # 4-7位: 背水の陣「もう博打しかない」
-                    pressure.core += 350.0 + gap_pressure + hp1_hope_pressure  # 絶望的な勝利欲求
-                    pressure.upper += 150.0  # 「どうリスク取るか」
+                    # 4-7位: 死の間際「最期の大博打」→ でも戦略は必要
+                    pressure.core += 200.0 + gap_pressure * 0.5 + hp1_death_defiance * 0.3  # 大幅削減
+                    pressure.upper += 250.0  # 戦略的思考を大幅強化
+                    pressure.base += 150.0   # 1500→150に削減
             else:
-                # 逆転不可能 → 「このままだと100%死ぬ」という絶望
+                # 死の回避不可能 → 「確実に死ぬ」= 完全絶望
                 if remaining_sets > 1:
-                    # 次セットに期待「今セットは捨ててHPだけ守る」
-                    pressure.core -= 50.0  # 勝利欲求一時停止
-                    pressure.upper -= 30.0  # 理念的挫折
-                    pressure.base += 150.0  # 「次のチャンスまで生き延びろ」
+                    # 次セットでの生存可能性に賭ける
+                    pressure.core += 500.0   # 来世への期待
+                    pressure.upper += 200.0  # 次回戦略
+                    pressure.base += 2000.0  # 「今は生き延びろ」
                 else:
-                    # 完全に絶望 → 「どうせ死ぬなら生き延びることだけ考える」
-                    pressure.core -= 100.0  # 勝利欲求の完全喪失
-                    pressure.upper -= 80.0  # 理念的崩壊
+                    # 完全絶望 → 死の受容状態
+                    pressure.core += 100.0   # 諦めた勝利欲求
+                    pressure.upper += 50.0   # 思考停止
+                    pressure.base += 3000.0  # 「せめて苦痛なく死にたい」
                     pressure.base += 250.0  # 「もう生きることしか...」
         
         elif current_rank == 1:
@@ -320,6 +346,16 @@ class ApexPlayerV3:
             else:
                 pressure.core += 70.0  # 攻めが極大化
         
+        # 【他プレイヤー行動パターン分析】
+        # 過去の選択履歴から競合相手の戦略を推測し、戦略圧力を調整
+        if other_players_history and round_num > 1:
+            competitor_analysis = self._analyze_competitors(other_players_history, current_rank, leader_score)
+            
+            # 分析結果を戦略圧力に反映
+            pressure.upper += competitor_analysis['strategic_pressure']  # 戦略的対応の必要性
+            pressure.core += competitor_analysis['competitive_pressure']  # 競争圧力
+            pressure.base += competitor_analysis['risk_assessment']       # リスク評価調整
+        
         # ===== STEP 2: 意味圧をHumanAgentに入力（E更新） =====
         self.agent.step(pressure, dt=1.0)
         
@@ -345,46 +381,56 @@ class ApexPlayerV3:
         
         # 【性格別の解釈フィルター】
         if self.personality == 'cautious':
-            # 慎重派: BASE層の声を重視
+            # 慎重派: 戦略的思考を重視した安全志向
             safety_drive = action_BASE * 2.0 - action_CORE * 0.5
             
-            if safety_drive > 5.0:
-                choice_value = 1.5  # 超安全
+            # 戦略的思考が強い場合は、それに従う
+            if action_UPPER > 3.0:
+                choice_value = 1.5 + action_UPPER * 0.3  # 戦略主導で慎重に
+            elif safety_drive > 5.0:
+                choice_value = 2.0  # 超安全
             elif safety_drive > 2.0:
                 choice_value = 3.0  # 安全
-            elif action_CORE > action_BASE:
+            elif action_CORE > action_BASE * 1.5:
                 # COREがBASEを上回った（勝ちたい > 生きたい）
-                choice_value = 5.0 + action_CORE * 0.5  # 5-8
+                choice_value = 3.0 + action_CORE * 0.2  # より控えめに
             else:
-                choice_value = 4.0  # デフォルト
+                choice_value = 2.5  # デフォルトも安全に
         
         elif self.personality == 'aggressive':
-            # 攻撃派: CORE層の声を重視
+            # 攻撃派: 戦略的思考を加味した攻撃性
             attack_drive = action_CORE * 2.0 - action_BASE * 0.5
             
-            if attack_drive > 10.0:
-                choice_value = 10.0  # 全力攻撃
-            elif attack_drive > 5.0:
-                choice_value = 8.0 + attack_drive * 0.2  # 8-10
+            # 戦略的思考が強い場合は、それを考慮
+            if action_UPPER > 5.0:
+                choice_value = 3.0 + action_UPPER * 0.5 + action_CORE * 0.1  # 戦略主導
+            elif attack_drive > 15.0:
+                choice_value = 7.0  # さらに制限（8→7）
+            elif attack_drive > 8.0:
+                choice_value = 5.0 + attack_drive * 0.1  # より保守的
             elif action_BASE > action_CORE * 2.0:
                 # BASEがCOREを圧倒（生存恐怖 >> 勝利欲求）
-                choice_value = 3.0 + action_BASE * 0.3  # 3-6
+                choice_value = 3.0 + action_BASE * 0.1  # より保守的に
             else:
-                choice_value = 7.0  # デフォルト
+                choice_value = 4.0  # デフォルトも下げる
         
         else:  # balanced
-            # バランス派: UPPER層の戦略的計算を重視
+            # バランス派: UPPER層の戦略的計算を最重視
             strategic_ratio = action_CORE / (action_BASE + 1.0)
             
-            if strategic_ratio > 2.0:
-                # CORE >> BASE → 攻めるべき
-                choice_value = 6.0 + action_CORE * 0.4  # 6-10
-            elif strategic_ratio < 0.5:
+            # 戦略的思考が強い場合は、それに従う
+            if action_UPPER > 5.0:
+                # 強い戦略的思考 → より慎重に
+                choice_value = 2.0 + action_UPPER * 0.4  # 戦略主導
+            elif strategic_ratio > 2.5:
+                # CORE >> BASE → 攻めるべき（上限を下げる）
+                choice_value = 4.0 + action_CORE * 0.15  # より保守的
+            elif strategic_ratio < 0.4:
                 # BASE >> CORE → 守るべき
-                choice_value = 2.0 + action_BASE * 0.3  # 2-5
+                choice_value = 2.0 + action_BASE * 0.1   # より保守的
             else:
                 # バランス → UPPER層の判断
-                choice_value = 5.0 + action_UPPER * 0.5  # 5-7
+                choice_value = 3.0 + action_UPPER * 0.5  # 戦略重視
         
         # 最終選択（1-10に丸める）
         choice = max(1, min(10, int(choice_value + 0.5)))
@@ -569,6 +615,84 @@ class ApexPlayerV3:
             # HP=4-5: 購入不要
             return 0
     
+    def _analyze_competitors(self, other_players_history: dict, current_rank: int, leader_score: int) -> dict:
+        """他プレイヤーの行動パターン分析
+        
+        過去の選択履歴から競合相手の戦略傾向を分析し、
+        自分の戦略調整に必要な圧力値を計算する
+        """
+        strategic_pressure = 0.0
+        competitive_pressure = 0.0
+        risk_assessment = 0.0
+        
+        # 分析する情報が不足している場合は基本値を返す
+        if not other_players_history:
+            return {
+                'strategic_pressure': 10.0,   # 基本的な戦略思考
+                'competitive_pressure': 5.0,  # 基本的な競争意識
+                'risk_assessment': 0.0        # リスク調整なし
+            }
+        
+        # 上位競合者の分析（自分より上位、または近い順位）
+        dangerous_competitors = 0
+        aggressive_players = 0
+        conservative_players = 0
+        
+        for player_name, history in other_players_history.items():
+            if not history:  # 履歴が空の場合
+                continue
+                
+            # 最近3回の選択の平均でプレイヤーの傾向を判定
+            recent_choices = history[-3:] if len(history) >= 3 else history
+            avg_choice = sum(recent_choices) / len(recent_choices)
+            
+            # プレイヤータイプ分類
+            if avg_choice >= 7.0:    # 高リスク志向
+                aggressive_players += 1
+                # 攻撃的プレイヤーへの対応策が必要
+                competitive_pressure += 30.0
+                risk_assessment += 20.0  # リスク回避の必要性
+            elif avg_choice <= 3.0:  # 低リスク志向  
+                conservative_players += 1
+                # 慎重派への対応（差をつける機会）
+                strategic_pressure += 20.0
+            else:                    # バランス型
+                # バランス型は読みにくい
+                strategic_pressure += 15.0
+                
+            # 危険な競合者判定（推定：上位者は脅威）
+            # 注：actual scoreは不明なので、履歴から推測
+            if avg_choice >= 5.0:  # 積極的 = 高得点の可能性
+                dangerous_competitors += 1
+        
+        # 競合状況に応じた圧力調整
+        total_competitors = len(other_players_history)
+        
+        if dangerous_competitors >= 2:
+            # 複数の強敵 → 戦略的対応が急務
+            strategic_pressure += 40.0
+            competitive_pressure += 25.0
+        elif dangerous_competitors == 1:
+            # 一人の強敵 → 適度な警戒
+            strategic_pressure += 25.0
+            competitive_pressure += 15.0
+            
+        # 自分の順位状況による調整
+        if current_rank > 1:  # 劣勢時
+            if aggressive_players > conservative_players:
+                # 攻撃的プレイヤーが多い → より慎重に
+                risk_assessment += 30.0
+                strategic_pressure += 20.0
+            else:
+                # 慎重なプレイヤーが多い → 差をつけるチャンス
+                competitive_pressure += 20.0
+        
+        return {
+            'strategic_pressure': min(100.0, strategic_pressure),    # 上限100
+            'competitive_pressure': min(80.0, competitive_pressure), # 上限80
+            'risk_assessment': min(60.0, risk_assessment)           # 上限60
+        }
+
     def reset_set_score(self):
         """セット終了時のリセット
         
@@ -610,8 +734,16 @@ def play_round(players: list, round_num: int, total_rounds: int, current_set: in
     choices = []
     for p in alive_players:
         rank = ranks[p.name]
+        
+        # 他プレイヤーの履歴を構築（自分以外の生存者）
+        other_players_history = {}
+        for other_p in alive_players:
+            if other_p.name != p.name and other_p.choice_history:
+                other_players_history[other_p.name] = other_p.choice_history.copy()
+        
         choice = p.make_choice(rank, leader_score, round_num, total_rounds, 
-                              len(alive_players), current_set, total_sets)
+                              len(alive_players), current_set, total_sets,
+                              other_players_history)
         crash_rate = GameConfig.CHOICES[choice]['crash_rate']
         
         # E/κ状態表示（デバッグ用）
