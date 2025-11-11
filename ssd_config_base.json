@@ -1,0 +1,15 @@
+{
+  "survival_sensitivity": 5.0,
+  "competition_drive": 5.0,
+  "strategic_thinking": 5.0,
+  "risk_tolerance": 5.0,
+  "hp_pressure_scaling": 5.0,
+  "rank_pressure_scaling": 5.0,
+  "time_pressure_scaling": 5.0,
+  "energy_generation_rate": 5.0,
+  "kappa_learning_rate": 5.0,
+  "leap_threshold_sensitivity": 5.0,
+  "safety_influence_weight": 5.0,
+  "attack_influence_weight": 5.0,
+  "strategic_influence_weight": 5.0
+}

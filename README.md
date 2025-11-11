@@ -64,6 +64,75 @@ python run_social_analysis.py
 
 詳細: `examples/SOCIAL_ANALYSIS_README.md`
 
+## 🎛️ SSD開発の実践的知見
+
+### ⚠️ 重要：SSDの本質は「数値調整」
+SSD理論は美しいが、実装は**泥臭いパラメータ調整作業**が全て。
+
+#### ❌ 調整困難な設計パターン
+```python
+# 悪い例：パラメータが分散、内部値で調整
+class Player:
+    def __init__(self):
+        self.agent.state.kappa[0] = 147.5  # 意味不明
+        self.agent.state.kappa[1] = 8.2    # 影響度不明
+```
+
+#### ✅ 調整しやすい設計パターン  
+```python
+# 良い例：中央集約、直感的スケール
+config = SSDConfig(
+    survival_sensitivity=8.0,  # 0-10: 8=かなり敏感
+    competition_drive=4.0,     # 0-10: 4=やや低い
+    safety_weight=7.0          # 0-10: 7=安全重視
+)
+player = SSDPlayer(config)
+```
+
+### 🔧 必須機能
+1. **パラメータ中央管理**: 全設定を1つのConfigクラスに
+2. **0-10直感スケール**: エンジニアが理解できる範囲
+3. **A/Bテスト機能**: 複数設定の同時比較
+4. **自動最適化**: 目標メトリクス指定で自動調整
+5. **設定保存/読込**: JSON形式でプリセット管理
+
+参考実装: `examples/ssd_interactive_tuner.py`
+
+### 📊 調整のベストプラクティス
+
+#### 1. 段階的アプローチ
+```python
+# Step 1: 極端な設定で動作確認
+cautious = SSDConfig(survival_sensitivity=9.0, safety_weight=9.0)
+aggressive = SSDConfig(competition_drive=9.0, attack_weight=9.0)
+
+# Step 2: A/Bテストで効果測定  
+result = tester.compare([cautious, aggressive], test_situations)
+
+# Step 3: 自動最適化で精密調整
+optimal = tester.find_optimal(target_metrics={'choice_range': (2, 8)})
+```
+
+#### 2. 標準テストケース
+```python
+standard_situations = [
+    {"name": "安全状況", "hp": 4, "rank": 2, "score_gap": 20},
+    {"name": "危険状況", "hp": 1, "rank": 5, "score_gap": 100}, 
+    {"name": "競争状況", "hp": 3, "rank": 2, "score_gap": 5}
+]
+```
+
+#### 3. 期待される結果パターン
+- **慎重型**: 選択2-4（常に安全寄り）
+- **バランス型**: 選択3-7（状況に応じて変化）
+- **攻撃型**: 選択5-9（常にリスク寄り）
+
+### 💡 開発効率化のコツ
+- **設定ファイル**: プリセットをJSONで管理
+- **バッチテスト**: 複数設定を一括検証
+- **可視化**: 結果をグラフ表示
+- **回帰テスト**: 既知の動作パターンを自動検証
+
 ---
 
-*Note: 外部ロジックなしに、純粋な内部力学から行動を創発させる理論実装*
+*SSDは理論的に美しいが、実装は数値調整が全て。調整しやすいコード構造が成功の鍵。*
